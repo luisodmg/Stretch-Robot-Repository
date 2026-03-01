@@ -2,6 +2,9 @@
 import time
 import threading
 import numpy as np
+import json
+import os
+from pathlib import Path
 from .base import JointController, CamInfo, DepthCamInfo
 from stretch_mujoco import StretchMujocoSimulator
 from stretch_mujoco.enums.actuators import Actuators
@@ -11,15 +14,22 @@ from stretch_mujoco.enums.stretch_cameras import StretchCameras
 class SimulatedJointController(JointController):
     """Controls simulated robot joints using normalized velocities (-1.0 to 1.0)."""
     
-    def __init__(self, sim: StretchMujocoSimulator, max_linear_accel: float = 0.15, max_angular_accel: float = 1.78):
+    def __init__(self, sim: StretchMujocoSimulator, max_linear_accel: float = 0.15, max_angular_accel: float = 1.78, 
+                 config_file: str = 'sim_joint_config.json'):
         """Initialize simulated controller.
         
         Args:
             sim: StretchMujocoSimulator instance to control
             max_linear_accel: Maximum linear acceleration (m/s^2)
             max_angular_accel: Maximum angular acceleration (rad/s^2)
+            config_file: JSON file for joint speed/acceleration configuration
         """
         self.sim = sim
+        
+        # Store config file in this script's directory
+        script_dir = Path(__file__).parent
+        self.config_file = script_dir / config_file
+        self.last_mtime = None
         
         # Current velocities for smoothing
         self.current_v_linear = 0.0
@@ -33,31 +43,8 @@ class SimulatedJointController(JointController):
         # Time tracking
         self.last_update_time = None
         
-        # Max joint velocities (from original keyboard_teleop.py move_by values)
-        # These represent the max increment per call, creating velocity-like behavior
-        self.joint_max_speeds = {
-            'lift_up': 0.2,
-            'arm_out': 0.1,
-            'head_tilt_up': -0.5,  # Negated for correct tilt direction
-            'head_pan_counterclockwise': -0.5,  # Negated for counterclockwise
-            'wrist_yaw_counterclockwise': -1.0,  # Negated for counterclockwise
-            'wrist_pitch_up': -0.05,
-            'wrist_roll_counterclockwise': -0.25,  # Negated for counterclockwise
-            'gripper_open': 0.07,
-        }
-        
-        # Max joint accelerations (units/s^2 - matching the joint_max_speeds units)
-        # Conservative values for smooth motion
-        self.joint_max_accels = {
-            'lift_up': 10,
-            'arm_out': 10,
-            'head_tilt_up': 1.0,
-            'head_pan_counterclockwise': 1.0,
-            'wrist_yaw_counterclockwise': 1.0,
-            'wrist_pitch_up': 1.0,
-            'wrist_roll_counterclockwise': 1.0,
-            'gripper_open': 0.35,
-        }
+        # Initialize joint speeds and accelerations from file
+        self._load_or_create_config()
         
         # Map velocity dict keys to Actuator enums
         self.joint_actuator_map = {
@@ -70,6 +57,68 @@ class SimulatedJointController(JointController):
             'wrist_roll_counterclockwise': Actuators.wrist_roll,
             'gripper_open': Actuators.gripper,
         }
+
+    def _get_default_config(self):
+        """Get default joint speed and acceleration configuration."""
+        return {
+            'joint_max_speeds': {
+                'lift_up': 0.2,
+                'arm_out': 0.1,
+                'head_tilt_up': -0.5,
+                'head_pan_counterclockwise': -0.5,
+                'wrist_yaw_counterclockwise': -1.0,
+                'wrist_pitch_up': -0.05,
+                'wrist_roll_counterclockwise': -0.25,
+                'gripper_open': 0.07,
+                'base_forward': 0.1,
+                'base_counterclockwise': 1.77,
+            },
+            'joint_max_accels': {
+                'lift_up': 10,
+                'arm_out': 10,
+                'head_tilt_up': 1.0,
+                'head_pan_counterclockwise': 1.0,
+                'wrist_yaw_counterclockwise': 1.0,
+                'wrist_pitch_up': 1.0,
+                'wrist_roll_counterclockwise': 1.0,
+                'gripper_open': 0.35,
+                'base_forward': 0.15,
+                'base_counterclockwise': 1.78,
+            }
+        }
+
+    def _load_or_create_config(self):
+        """Load configuration from JSON file, creating with defaults if it doesn't exist."""
+        if not self.config_file.exists():
+            # Create file with defaults
+            defaults = self._get_default_config()
+            with open(self.config_file, 'w') as f:
+                json.dump(defaults, f, indent=2)
+            print(f"Created default sim joint config: {self.config_file}")
+        
+        # Load from file
+        self._load_config()
+
+    def _load_config(self):
+        """Load configuration from JSON file and update modification time."""
+        with open(self.config_file, 'r') as f:
+            config = json.load(f)
+        
+        self.joint_max_speeds = config['joint_max_speeds']
+        self.joint_max_accels = config['joint_max_accels']
+        
+        # Update modification time
+        self.last_mtime = os.path.getmtime(self.config_file)
+
+    def _check_and_reload_config(self):
+        """Check if config file has been modified and reload if necessary."""
+        if not self.config_file.exists():
+            return
+        
+        current_mtime = os.path.getmtime(self.config_file)
+        if current_mtime != self.last_mtime:
+            print(f"Sim joint config file changed, reloading: {self.config_file}")
+            self._load_config()
     
     def _set_base_velocities(self, vel_dict, dt):
         """Set base velocities with acceleration smoothing and unit conversion.
@@ -78,9 +127,9 @@ class SimulatedJointController(JointController):
             vel_dict: Dictionary of normalized velocities
             dt: Time delta since last update (seconds)
         """
-        # Real-world max velocities (m/s and rad/s)
-        MAX_LINEAR_VEL_REAL = 0.1  # m/s - real robot max linear velocity
-        MAX_ANGULAR_VEL_REAL = 1.77  # rad/s - real robot max angular velocity
+        # Get max velocities from config (m/s and rad/s)
+        max_linear_vel = abs(self.joint_max_speeds.get('base_forward', 0.1))
+        max_angular_vel = abs(self.joint_max_speeds.get('base_counterclockwise', 1.77))
         
         # Sim conversion factors (empirically determined)
         # sim_units = real_units * conversion_factor
@@ -88,12 +137,16 @@ class SimulatedJointController(JointController):
         ANGULAR_CONVERSION = 5.0  # Empirically determined
         
         # Calculate target velocities in real-world units
-        target_v_linear = vel_dict.get('base_forward', 0.0) * MAX_LINEAR_VEL_REAL
-        target_omega = vel_dict.get('base_counterclockwise', 0.0) * MAX_ANGULAR_VEL_REAL
+        target_v_linear = vel_dict.get('base_forward', 0.0) * max_linear_vel
+        target_omega = vel_dict.get('base_counterclockwise', 0.0) * max_angular_vel
+        
+        # Get acceleration limits from config (m/s^2 and rad/s^2)
+        max_linear_accel = abs(self.joint_max_accels.get('base_forward', 0.15))
+        max_angular_accel = abs(self.joint_max_accels.get('base_counterclockwise', 1.78))
         
         # Apply acceleration limits (in real-world units)
-        max_linear_delta = self.max_linear_accel * dt
-        max_angular_delta = self.max_angular_accel * dt
+        max_linear_delta = max_linear_accel * dt
+        max_angular_delta = max_angular_accel * dt
         
         # Ramp linear velocity
         v_linear_diff = target_v_linear - self.current_v_linear
@@ -122,6 +175,10 @@ class SimulatedJointController(JointController):
             dt: Time delta since last update (seconds)
         """
         for joint_name, max_speed in self.joint_max_speeds.items():
+            # Skip base movements - they're handled by _set_base_velocities
+            if joint_name in ['base_forward', 'base_counterclockwise']:
+                continue
+            
             # Get target velocity
             normalized_vel = vel_dict.get(joint_name, 0.0)
             target_vel = normalized_vel * max_speed
@@ -157,6 +214,9 @@ class SimulatedJointController(JointController):
             vel_dict: Dict mapping joint names to velocities (-1.0 to 1.0)
                      Example: {'base_forward': 0.3, 'base_counterclockwise': 0.1}
         """
+        # Check for config file updates
+        self._check_and_reload_config()
+        
         # Calculate actual time delta
         current_time = time.perf_counter()
         if self.last_update_time is None:

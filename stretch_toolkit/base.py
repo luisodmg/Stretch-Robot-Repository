@@ -3,6 +3,9 @@ from . import input as ci
 
 import numpy as np
 import math
+import json
+import os
+from pathlib import Path
 
 class CamInfo:
     """Single camera configuration with intrinsics and frame getter."""
@@ -260,54 +263,129 @@ class DepthCamInfo:
 
 class TeleopProvider:
     """Provides teleoperation commands as normalized joint velocities."""
-    def __init__(self, is_stretch_env=False):
+    def __init__(self, is_stretch_env=False, config_file='teleop_mappings.json'):
         self.is_stretch_env = is_stretch_env
-        if is_stretch_env:
-            ci.INVERT_Y_AXIS = True
+        
+        # Store config file in this script's directory
+        script_dir = Path(__file__).parent
+        self.config_file = script_dir / config_file
+        self.last_mtime = None
         
         # Toggle states
         self.dpad_controls_head = False  # False = wrist, True = head
         self.manual_mode_enabled = True  # True = manual control, False = algorithmic
         
-        # Base joint mappings (always active)
-        self.base_mappings = {
-            'base_forward': ('w', 's', 'LY'),           # Left stick Y
-            'base_counterclockwise': ('d', 'a', 'LX'), # Left stick X
-            'lift_up': ('z', 'x', 'RY'),               # Right stick Y
-            'arm_out': ('v', 'c', 'RX'),               # Right stick X
-            'gripper_open': ('m', 'n', 'B', 'A'),                    # m=open, n=close
-        }
-        
-        # D-pad mappings for wrist control
-        self.dpad_wrist_mappings = {
-            'wrist_yaw_counterclockwise': ('l', 'j', 'RB', 'LB'),  # Gamepad only
-            'wrist_roll_counterclockwise': ('u', 'o', None, 'DPAD_X'),  # o=CCW, l=CW
-            'wrist_pitch_up': ('i', 'k', None, 'DPAD_Y'),               # i=up, k=down
-            'head_pan_counterclockwise': (),
-            'head_tilt_up': (),
-        }
-        
-        # D-pad mappings for head control
-        self.dpad_head_mappings = {
-            'wrist_roll_counterclockwise': (),
-            'wrist_pitch_up': (),
-            'head_pan_counterclockwise': ('l', 'j', 'DPAD_X'),   # o=CCW, l=CW
-            'head_tilt_up': ('i', 'k', None, 'DPAD_Y'),          # i=up, k=down
-        }
+        # Load mappings from config file
+        self._load_or_create_config()
         
         self.joint_mappings = {}
         self._update_joint_mappings()
+
+    def _get_default_config(self):
+        """Get default teleop mappings configuration."""
+        return {
+            'irl': {
+                'base_mappings': {
+                    'base_forward': ['w', 's', 'LY'],
+                    'base_counterclockwise': ['d', 'a', 'LX'],
+                    'lift_up': ['z', 'x', 'RY'],
+                    'arm_out': ['v', 'c', 'RX'],
+                    'gripper_open': ['m', 'n', 'B', 'A'],
+                    'wrist_yaw_counterclockwise': ['l', 'j', 'RB', 'LB'],
+                    'wrist_roll_counterclockwise': ['u', 'o', None, 'DPAD_X'],
+                    'wrist_pitch_up': ['i', 'k', None, 'DPAD_Y'],
+                },
+                'dpad_head_mappings': {
+                    'wrist_yaw_counterclockwise': [],
+                    'wrist_roll_counterclockwise': [],
+                    'wrist_pitch_up': [],
+                    'head_pan_counterclockwise': ['l', 'j', 'DPAD_X'],
+                    'head_tilt_up': ['i', 'k', None, 'DPAD_Y'],
+                },
+                'toggle_buttons': {
+                    'head_wrist_toggle': ['X', 'h']
+                }
+            },
+            'sim': {
+                # Sim-specific overrides can go here
+            }
+        }
+
+    def _load_or_create_config(self):
+        """Load configuration from JSON file, creating with defaults if it doesn't exist."""
+        if not self.config_file.exists():
+            # Create file with defaults
+            defaults = self._get_default_config()
+            with open(self.config_file, 'w') as f:
+                json.dump(defaults, f, indent=2)
+            print(f"Created default teleop config: {self.config_file}")
+        
+        # Load from file
+        self._load_config()
+
+    def _load_config(self):
+        """Load configuration from JSON file and update modification time."""
+        with open(self.config_file, 'r') as f:
+            config = json.load(f)
+        
+        # Start with 'irl' config (base/default)
+        irl_config = config.get('irl', config)  # Fallback to root if no 'irl' key
+        
+        # If not stretch_env (i.e., simulation), recursively override with 'sim' config
+        if not self.is_stretch_env and 'sim' in config:
+            final_config = self._recursive_merge(irl_config, config['sim'])
+        else:
+            final_config = irl_config
+        
+        # Convert lists back to tuples
+        self.base_mappings = {k: tuple(v) for k, v in final_config.get('base_mappings', {}).items()}
+        self.dpad_head_mappings = {k: tuple(v) for k, v in final_config.get('dpad_head_mappings', {}).items()}
+        
+        # Load toggle buttons
+        self.toggle_buttons = final_config.get('toggle_buttons', {'head_wrist_toggle': ['X', 'h']})
+        
+        # Update modification time
+        self.last_mtime = os.path.getmtime(self.config_file)
+    
+    def _recursive_merge(self, base, override):
+        """Recursively merge override dict into base dict.
+        
+        Args:
+            base: Base dictionary
+            override: Override dictionary (values override base)
+        
+        Returns:
+            Merged dictionary
+        """
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                result[key] = self._recursive_merge(result[key], value)
+            else:
+                # Override value
+                result[key] = value
+        return result
+
+    def _check_and_reload_config(self):
+        """Check if config file has been modified and reload if necessary."""
+        if not self.config_file.exists():
+            return
+        
+        current_mtime = os.path.getmtime(self.config_file)
+        if current_mtime != self.last_mtime:
+            print(f"Teleop config file changed, reloading: {self.config_file}")
+            self._load_config()
+            self._update_joint_mappings()
 
     def _update_joint_mappings(self):
         """Update joint mappings based on current toggle states."""
         # Start with base mappings
         self.joint_mappings = self.base_mappings.copy()
         
-        # Add D-pad mappings based on mode
+        # Add head mappings when toggle is active
         if self.dpad_controls_head:
             self.joint_mappings.update(self.dpad_head_mappings)
-        else:
-            self.joint_mappings.update(self.dpad_wrist_mappings)
 
     def _normalize_mapping(self, mapping):
         """Normalize mapping tuple to 6 elements with defaults.
@@ -345,21 +423,16 @@ class TeleopProvider:
         Returns:
             bool: True if button was just pressed
         """
-        if self.is_stretch_env:
-            # Swap X and Y buttons in Stretch environment
-            if button == 'X':
-                button = 'Y'
-            elif button == 'Y':
-                button = 'X'
         return ci.rising_edge(button)
 
     def _check_toggles(self):
         """Check for toggle button presses and update states."""
-        # X button toggles D-pad control mode
-        if self._button_pressed('X') or self._button_pressed('h'):
+        # Check head/wrist toggle buttons
+        toggle_buttons = self.toggle_buttons.get('head_wrist_toggle', [])
+        if any(self._button_pressed(btn) for btn in toggle_buttons if btn):
             self.dpad_controls_head = not self.dpad_controls_head
-            mode = "HEAD" if self.dpad_controls_head else "WRIST"
-            print(f"D-pad now controls: {mode}")
+            mode = "HEAD (override wrist)" if self.dpad_controls_head else "WRIST (default)"
+            print(f"Controls: {mode}")
             self._update_joint_mappings()
 
     def get_normalized_velocities(self):
@@ -368,6 +441,9 @@ class TeleopProvider:
         Returns:
             dict: Normalized velocities (-1.0 to 1.0) for all joints
         """
+        # Check for config file updates
+        self._check_and_reload_config()
+        
         # Check for toggle button presses
         self._check_toggles()
         

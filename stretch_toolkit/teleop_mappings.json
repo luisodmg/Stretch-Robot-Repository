@@ -1,0 +1,37 @@
+{
+  "irl": {
+    "base_mappings": {
+      "base_forward": [ "w", "s", null, "LY" ],
+      "base_counterclockwise": [ "d", "a", "LX" ],
+      "lift_up": [ "z", "x", null, "RY" ],
+      "arm_out": [ "v", "c", "RX" ],
+      "gripper_open": [ "m", "n", "B", "A" ],
+      "wrist_yaw_counterclockwise": [ "l", "j", "RB", "LB" ],
+      "wrist_roll_counterclockwise": [ "u", "o", null, "DPAD_X" ],
+      "wrist_pitch_up": [ "k", "i", null, "DPAD_Y" ]
+    },
+    "dpad_head_mappings": {
+      "wrist_yaw_counterclockwise": [],
+      "wrist_roll_counterclockwise": [],
+      "wrist_pitch_up": [],
+      "head_pan_counterclockwise": [ "l", "j", "DPAD_X" ],
+      "head_tilt_up": [ "k", "i", null, "DPAD_Y" ]
+    },
+    "toggle_buttons": {
+      "head_wrist_toggle": [ "Y", "h" ]
+    }
+  },
+  "sim": {
+    "base_mappings": {
+      "base_forward": [ "w",  "s", "LY" ],
+      "lift_up": [ "z", "x", "RY" ],
+      "wrist_pitch_up": [ "k", "i", null, "DPAD_Y" ]
+    },
+    "dpad_head_mappings": {
+      "head_tilt_up": [ "k", "i", null, "DPAD_Y" ]
+    },
+    "toggle_buttons": {
+      "head_wrist_toggle": [ "X", "h" ]
+    }
+  }
+}

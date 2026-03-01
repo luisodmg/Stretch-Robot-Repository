@@ -13,6 +13,24 @@ import numpy as np
 
 print(f"\n=== Running on {BACKEND_NAME} backend ===\n")
 
+# Visual servoing configuration - swap these to switch between head and wrist
+HEAD_CONFIG = {
+    "camera": HEAD_RGB_CAMERA,
+    "joint_x": "head_pan_counterclockwise",
+    "joint_y": "head_tilt_up",
+    "name": "Head RGB"
+}
+
+WRIST_CONFIG = {
+    "camera": WRIST_RGB_CAMERA,
+    "joint_x": "wrist_yaw_counterclockwise",
+    "joint_y": "wrist_pitch_up",
+    "name": "Wrist RGB"
+}
+
+# Active configuration - change this to switch between head and wrist
+SERVO_CONFIG = WRIST_CONFIG
+
 def get_obj_center(frame):
     """Find the largest red contour and return its center.
     
@@ -67,8 +85,8 @@ def servoing_demo():
             # Get normalized velocities from input devices
             cmd = teleop.get_normalized_velocities()
 
-            # Get frame from head rgb
-            frame = HEAD_RGB_CAMERA.get_frame()
+            # Get frame from configured camera
+            frame = SERVO_CONFIG["camera"].get_frame()
             if frame is not None:
                 drawing_frame = frame.copy()
 
@@ -87,13 +105,13 @@ def servoing_demo():
                     error_y = norm_center[1] - norm_image_center[1]
                     Kp = 0.5  # Proportional gain
                     velocities = {
-                        "head_pan_counterclockwise": Kp * error_x,
-                        "head_tilt_up": Kp * error_y
+                        SERVO_CONFIG["joint_x"]: Kp * error_x,
+                        SERVO_CONFIG["joint_y"]: Kp * error_y
                     }
                     cmd = merge_proportional(cmd, velocities) # User input always wins over auto commands
 
                 # Display the drawing frame
-                cv2.imshow("Head RGB", drawing_frame)
+                cv2.imshow(SERVO_CONFIG["name"], drawing_frame)
 
             # Send to robot (physical or simulated)
             controller.set_velocities(cmd)
