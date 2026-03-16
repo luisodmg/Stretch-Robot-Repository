@@ -24,7 +24,7 @@ Then, clone this repo:
 
 ```
 git clone https://github.com/SilentSammy/stretch_mujoco_digital_twin --recurse-submodules
-cd stretch_mujoco
+cd stretch_mujoco_digital_twin
 ```
 
 > If you've already cloned the repo without `--recurse-submodules`, run `git submodule update --init` to pull the submodule.
