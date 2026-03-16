@@ -32,7 +32,7 @@ cd stretch_mujoco
 Lastly, run the simulation:
 
 ```
-uv run launch_sim
+uv run teleop_demo.py
 ```
 
 > Note: On Linux, if you see a build error mentioning `evdev` or `gcc`, please run:
@@ -89,7 +89,7 @@ uv run third_party/robocasa/robocasa/scripts/setup_macros.py
 uv run third_party/robocasa/robocasa/scripts/download_kitchen_assets.py
 
 # Run sim
-uv run examples/robocasa_environment.py
+uv run teleop_demo.py
 ```
 
 Ignore any warnings.
