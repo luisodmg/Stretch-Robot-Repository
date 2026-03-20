@@ -12,6 +12,9 @@ Check out the [highlight reel](https://www.youtube.com/watch?v=SWPJt67IB0Q) for 
 
 
 ## Getting Started
+
+**Video Tutorial:** [Installation & Setup Guide](https://youtu.be/FLPB3TQcUoI)
+
 Start with Google Colab:
 
  - Getting Started Tutorial [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SilentSammy/stretch_mujoco_digital_twin/blob/main/docs/getting_started.ipynb)
@@ -61,23 +64,23 @@ ln -s "$PYTHON_LIB_DIR/libpython3.10.dylib" ./.venv/lib/libpython3.10.dylib
 export DYLD_LIBRARY_PATH=/usr/lib:$DYLD_LIBRARY_PATH
 ```
 
-## Example Scripts
+## Teleoperation Demo
 
-[Keyboard teleop](https://github.com/SilentSammy/stretch_mujoco_digital_twin/tree/main/examples/keyboard_teleop.py)
-
-```
-uv run examples/keyboard_teleop.py
-```
-
-[Gamepad teleop](https://github.com/SilentSammy/stretch_mujoco_digital_twin/tree/main/examples/gamepad_teleop.py)
-
-Control Stretch in simulation using any xbox type gamepad (uses xinput)
+Run the teleoperation demo with keyboard and gamepad support:
 
 ```
-uv run examples/gamepad_teleop.py
+uv run teleop_demo.py
 ```
 
-[Robocasa environments](https://github.com/SilentSammy/stretch_mujoco_digital_twin/tree/main/examples/robocasa_environment.py)
+The demo supports:
+- Automatic backend detection (physical robot or simulation)
+- Keyboard and gamepad input (automatically detected)
+- Runtime-toggleable camera displays (press 1-5 to enable/disable cameras)
+- Normalized velocity control
+
+### Robocasa Kitchen Environments
+
+To use Robocasa kitchen environments:
 
 ```
 # Setup

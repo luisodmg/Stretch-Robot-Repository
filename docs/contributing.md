@@ -8,7 +8,7 @@ Thank you for considering contributing to this repository. Stretch Mujoco is a h
  - `pyproject.toml` - defines the project's dependencies
  - `mkdocs.yml` - defines the tutorials that should appear on the [main docs page](https://docs.hello-robot.com/0.3/#simulating-stretch)
  - `docs/` - tutorials and documentation
- - `examples/` - small scripts that show some aspect of the sim
+ - `teleop_demo.py` - main teleoperation demo script
  - `stretch_mujoco/` - source code for the sim
      - `mujoco_server_<>.py` - server side of the simulation; `<>` can be `passive`, `managed` for simulation with visualization (passive vs. managed viz is [described here](https://mujoco.readthedocs.io/en/stable/python.html#interactive-viewer)), or empty for headless simulation.
      - `stretch_mujoco_simulation.py` - client side of the simulation; the API is defined here. Communication between client and server is managed by shared memory.

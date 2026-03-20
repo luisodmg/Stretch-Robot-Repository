@@ -5,13 +5,9 @@ When using Mujoco to simulate Stretch, you can command [joints](https://github.c
 ## Getting Started
 
 1. Read the [README](https://github.com/hello-robot/stretch_mujoco/tree/main/README.md) to install the required dependencies.
-2. Check out the controller examples, such as:
-- [keyboard_teleop.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/keyboard_teleop.py)
-- [gamepad_teleopy.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/gamepad_teleop.py)
-3. Check out the headless examples, such as:
-- [draw_circles.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/draw_circles.py)
-- [camera_feeds.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/camera_feeds.py)
-4. Check out the sensor example: [laser_sca.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/laser_scan.py)
+2. Run the teleoperation demo: `uv run teleop_demo.py`
+   - This provides keyboard and gamepad control with runtime-toggleable camera displays
+3. See the "Writing Code" section in the README for programmatic control examples
 
 ### Terminology
 
@@ -42,7 +38,7 @@ if __name__ == "__main__":
 
 > If you are using the simulation for machine-learning applications, it is recommended to use the headless mode for better performance.
 
-> If you are displaying camera data or doing heavy computations on your Control Loop, it is recommended to move your control commands to a thread, and display the camera data on the main thread. See [Displaying camera data using OpenCV](#displaying-camera-data-using-opencv) below and the [camera_feeds.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/camera_feeds.py) example for more information.
+> If you are displaying camera data or doing heavy computations on your Control Loop, it is recommended to move your control commands to a thread, and display the camera data on the main thread. See [Displaying camera data using OpenCV](#displaying-camera-data-using-opencv) below for more information.
 
 ### Commanding Stretch
 
@@ -95,7 +91,7 @@ Note: this operation is computationally heavy. The more cameras that are request
 
 ##### Displaying camera data using OpenCV
 
-The [camera_feeds.py](https://github.com/hello-robot/stretch_mujoco/tree/main/examples/camera_feeds.py) example shows a sample to display camera data using `cv2.imshow()`.
+The `teleop_demo.py` script shows how to display camera data using `cv2.imshow()`.
 
 ```python
 
