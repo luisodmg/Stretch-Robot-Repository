@@ -100,6 +100,22 @@ Ignore any warnings.
 <img src="https://github.com/SilentSammy/stretch_mujoco_digital_twin/raw/main/docs/images/robocasa_scene_1.png" title="Camera Streams" width="300px">
 <img src="https://github.com/SilentSammy/stretch_mujoco_digital_twin/raw/main/docs/images/robocasa_scene_camera_data.png" title="Camera Streams" width="300px">
 
+## stretch_toolkit — Sim-to-Real API
+
+The `stretch_toolkit` package provides a **unified control interface** that runs identically on the physical Stretch robot and in the MuJoCo simulator. The correct backend is selected automatically at import time — no code changes required to switch between simulation and the real robot.
+
+Key capabilities:
+
+- **Unified joint control** — velocity commands use semantic, directional joint names (e.g. `lift_up`, `arm_out`, `gripper_open`) that map to the right actuators on whichever backend is active.
+- **Unified camera access** — RGB and depth frames from the head and wrist cameras are retrieved through the same interface regardless of backend.
+- **Teleoperation input** — keyboard and gamepad inputs are normalized to the same velocity dictionary consumed by the controller, making it easy to swap or combine input methods.
+- **Position control** — a backend-agnostic P-controller lets you drive joints to target positions without writing backend-specific code.
+- **Hot-reloadable config** — joint speed tuning and control mappings can be adjusted in JSON files and take effect at runtime without restarting.
+
+> **Note:** The `stretch_toolkit` API is under active development and subject to change.
+
+The `teleop_demo.py` script at the root of this repo is the primary entry point for `stretch_toolkit` and demonstrates all of the above working together.
+
 ## Writing Code
 
 Use the [StretchMujocoSimulator](https://github.com/SilentSammy/stretch_mujoco_digital_twin/tree/main/stretch_mujoco/stretch_mujoco.py) class to:
