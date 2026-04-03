@@ -18,7 +18,8 @@
       "head_tilt_up": [ "k", "i", null, "DPAD_Y" ]
     },
     "toggle_buttons": {
-      "head_wrist_toggle": [ "Y", "h" ]
+      "head_wrist_toggle": [ "Y", "h" ],
+      "manual_mode_toggle": [ "X", "y" ]
     }
   },
   "sim": {
@@ -31,7 +32,8 @@
       "head_tilt_up": [ "k", "i", null, "DPAD_Y" ]
     },
     "toggle_buttons": {
-      "head_wrist_toggle": [ "X", "h" ]
+      "head_wrist_toggle": [ "X", "h" ],
+      "manual_mode_toggle": [ "Y", "y" ]
     }
   }
 }

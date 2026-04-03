@@ -6,22 +6,6 @@ physical and simulated backends.
 from .base import JointController
 
 
-# Mapping between simplified names and toolkit velocity command names
-JOINT_TO_COMMAND = {
-    "arm": "arm_out",
-    "lift": "lift_up",
-    "wrist_roll": "wrist_roll_counterclockwise",
-    "wrist_pitch": "wrist_pitch_up",
-    "wrist_yaw": "wrist_yaw_counterclockwise",
-    "head_pan": "head_pan_counterclockwise",
-    "head_tilt": "head_tilt_up",
-    "gripper": "gripper_open",
-}
-
-# Reverse mapping for reading state
-COMMAND_TO_JOINT = {v: k for k, v in JOINT_TO_COMMAND.items()}
-
-
 class StateController:
     """Position-based controller that generates velocity commands to reach desired states.
     
@@ -34,12 +18,12 @@ class StateController:
         
         Args:
             controller: JointController instance (physical or simulated)
-            desired_state: Dict of desired joint positions, e.g.:
+            desired_state: Dict of desired joint positions using full toolkit names, e.g.:
                 {
-                    "arm": 0.5,           # meters
-                    "lift": 1.1,          # meters
-                    "wrist_yaw": 0.0,     # radians
-                    "gripper": 1.57,      # radians
+                    "arm_out": 0.5,                    # meters
+                    "lift_up": 1.1,                    # meters
+                    "wrist_yaw_counterclockwise": 0.0, # radians
+                    "gripper_open": 1.57,              # radians
                 }
         """
         self.controller = controller
@@ -47,32 +31,32 @@ class StateController:
         
         # Individual Kp values for different joint types
         self.Kp = {
-            "wrist_roll": 1.0,       # rad -> normalized velocity
-            "wrist_pitch": 1.0,      # rad -> normalized velocity
-            "wrist_yaw": 1.0,        # rad -> normalized velocity
-            "lift": 10.0,             # m -> normalized velocity
-            "arm": 5.0,              # m -> normalized velocity
-            "head_pan": 1.0,         # rad -> normalized velocity
-            "head_tilt": 1.0,        # rad -> normalized velocity
-            "gripper": 0.25          # rad -> normalized velocity
+            "wrist_roll_counterclockwise": 1.0,   # rad -> normalized velocity
+            "wrist_pitch_up": 1.0,                # rad -> normalized velocity
+            "wrist_yaw_counterclockwise": 1.0,    # rad -> normalized velocity
+            "lift_up": 10.0,                      # m -> normalized velocity
+            "arm_out": 5.0,                       # m -> normalized velocity
+            "head_pan_counterclockwise": 1.0,     # rad -> normalized velocity
+            "head_tilt_up": 1.0,                  # rad -> normalized velocity
+            "gripper_open": 0.25                  # rad -> normalized velocity
         }
         
         # Maximum velocity limits (overrides default 1.0)
         self.max_velocity = {
-            "lift": 0.75,            # Limit lift to 75% max speed
+            "lift_up": 0.75,         # Limit lift to 75% max speed
             # Add other joint-specific limits here as needed
         }
         
         # Position tolerance for each joint
         self.tolerance = {
-            "wrist_roll": 0.02,      # rad
-            "wrist_pitch": 0.02,     # rad  
-            "wrist_yaw": 0.02,       # rad
-            "lift": 0.01,            # m
-            "arm": 0.01,             # m
-            "head_pan": 0.02,        # rad
-            "head_tilt": 0.02,       # rad
-            "gripper": 0.1           # rad
+            "wrist_roll_counterclockwise": 0.02,  # rad
+            "wrist_pitch_up": 0.02,               # rad
+            "wrist_yaw_counterclockwise": 0.02,   # rad
+            "lift_up": 0.02,                      # m
+            "arm_out": 0.02,                      # m
+            "head_pan_counterclockwise": 0.02,    # rad
+            "head_tilt_up": 0.02,                 # rad
+            "gripper_open": 0.1                   # rad
         }
     
     def get_current_state(self):
@@ -81,17 +65,8 @@ class StateController:
         Returns:
             dict: Current positions using simplified joint names
         """
-        # Get full state from controller
         full_state = self.controller.get_state()
-        
-        # Convert to simplified names, filtering to only desired joints
-        current_state = {}
-        for simple_name in self.desired_state.keys():
-            toolkit_name = JOINT_TO_COMMAND.get(simple_name)
-            if toolkit_name and toolkit_name in full_state:
-                current_state[simple_name] = full_state[toolkit_name]
-        
-        return current_state
+        return {k: full_state[k] for k in self.desired_state if k in full_state}
     
     def is_at_goal(self):
         """Check if robot is within tolerance of desired state.
@@ -157,9 +132,6 @@ class StateController:
                     max_vel = self.max_velocity.get(joint, 1.0)
                     velocity = max(-max_vel, min(max_vel, velocity))
                 
-                # Map to toolkit command name
-                command_name = JOINT_TO_COMMAND.get(joint)
-                if command_name:
-                    command[command_name] = velocity
+                command[joint] = velocity
         
         return command

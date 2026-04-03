@@ -7,6 +7,7 @@ from stretch_toolkit import (
     HEAD_RGB_CAMERA, HEAD_DEPTH_CAMERA,
     WRIST_RGB_CAMERA, WRIST_DEPTH_CAMERA
 )
+import stretch_toolkit.input as inp
 import time
 import cv2
 import numpy as np

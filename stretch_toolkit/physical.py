@@ -21,6 +21,7 @@ class PhysicalJointController(JointController):
             robot: Robot instance (creates one if None)
             collision_mgmt: Enable collision management
         """
+        super().__init__()
         if robot is None:
             self.robot = rb.Robot()
             self.robot.startup()

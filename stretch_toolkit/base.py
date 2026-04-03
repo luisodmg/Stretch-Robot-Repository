@@ -5,6 +5,7 @@ import numpy as np
 import math
 import json
 import os
+import time
 from pathlib import Path
 
 class CamInfo:
@@ -273,7 +274,7 @@ class TeleopProvider:
         
         # Toggle states
         self.dpad_controls_head = False  # False = wrist, True = head
-        self.manual_mode_enabled = True  # True = manual control, False = algorithmic
+        self.manual_mode_enabled = False  # False = autonomous mode, True = manual override
         
         # Load mappings from config file
         self._load_or_create_config()
@@ -303,7 +304,8 @@ class TeleopProvider:
                     'head_tilt_up': ['i', 'k', None, 'DPAD_Y'],
                 },
                 'toggle_buttons': {
-                    'head_wrist_toggle': ['X', 'h']
+                    'head_wrist_toggle': ['X', 'h'],
+                    'manual_mode_toggle': ['X', 'y']
                 }
             },
             'sim': {
@@ -434,6 +436,13 @@ class TeleopProvider:
             mode = "HEAD (override wrist)" if self.dpad_controls_head else "WRIST (default)"
             print(f"Controls: {mode}")
             self._update_joint_mappings()
+        
+        # Check manual mode toggle buttons
+        manual_toggle_buttons = self.toggle_buttons.get('manual_mode_toggle', [])
+        if any(self._button_pressed(btn) for btn in manual_toggle_buttons if btn):
+            self.manual_mode_enabled = not self.manual_mode_enabled
+            mode = "MANUAL" if self.manual_mode_enabled else "AUTONOMOUS"
+            print(f"Mode: {mode}")
 
     def get_normalized_velocities(self):
         """Get normalized joint velocities from input devices.
@@ -452,9 +461,45 @@ class TeleopProvider:
             result[joint] = self._get_joint_velocity(mapping)
         return result
 
+    def get_manual_override(self, cmd_autonomous):
+        """Merge an autonomous command with teleop input, giving the operator priority.
+
+        When the operator moves a joint, their input proportionally overrides the
+        autonomous command for that joint. Joints the operator is not touching
+        continue to follow the autonomous command unmodified.
+
+        If manual_mode_enabled is True, ignores cmd_autonomous completely and returns
+        pure teleop control.
+
+        Args:
+            cmd_autonomous: Dict of normalized velocities from an autonomous controller.
+
+        Returns:
+            dict: Merged command to pass directly to controller.set_velocities().
+        """
+        cmd_teleop = self.get_normalized_velocities()
+        if self.manual_mode_enabled:
+            # Pure manual control - ignore autonomous command
+            return cmd_teleop
+        # Proportional blend - operator can override autonomous
+        return merge_proportional(cmd_teleop, cmd_autonomous)
+
 
 class JointController:
     """Base class for joint controllers."""
+
+    def __init__(self):
+        self._start_time = time.perf_counter()
+
+    def get_time(self):
+        """Get elapsed time in seconds since the controller was initialized.
+
+        Returns:
+            float: Elapsed seconds (wall-clock time).
+                   Subclasses may override this to return simulator time.
+        """
+        return time.perf_counter() - self._start_time
+
     def set_velocities(self, vel_dict):
         """Set normalized joint velocities.
         

@@ -24,6 +24,7 @@ class SimulatedJointController(JointController):
             max_angular_accel: Maximum angular acceleration (rad/s^2)
             config_file: JSON file for joint speed/acceleration configuration
         """
+        super().__init__()
         self.sim = sim
         
         # Store config file in this script's directory
