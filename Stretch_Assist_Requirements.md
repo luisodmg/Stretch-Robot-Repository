@@ -9,7 +9,7 @@
 | Platform | Stretch MuJoCo Digital Twin (`stretch_mujoco_digital_twin`) |
 | Team | Gustavo (technical lead, 80 h) and Luis (interface and evidence, 30 h) |
 | Total effort | 110 h |
-| Version | 1.0 |
+| Version | 1.1 |
 
 ## 1. Purpose
 
@@ -23,20 +23,30 @@ Development and testing happen entirely in the digital twin (MuJoCo), with no ex
 
 ## 3. Scope
 
+Target objects (three, fixed vocabulary):
+
+| ArUco ID | Object | Description |
+|---|---|---|
+| 0 | Medicine box | Small cardboard box representing a medication container. |
+| 1 | Glass | Cylindrical cup for drinking. |
+| 2 | Tissue | Flat, lightweight cloth or paper tissue. |
+
+Each object has an ArUco marker (ID 0, 1, or 2) attached as a sticker. The robot identifies the object from the marker ID and estimates its 3D position.
+
 In scope:
 
-* Visual detection of objects by color using the head camera.
-* 3D position estimation of the object from depth data.
+* Visual detection of the three target objects using ArUco markers (ID 0–2) on the head camera RGB frame.
+* 3D position estimation of the detected object by combining the marker centroid, the pixel depth from the depth camera, and the camera intrinsics.
 * Autonomous search, approach, alignment, grasp, return and delivery.
-* An accessible command interface (voice or large buttons) to select the object.
+* An accessible command interface (voice or large buttons) to select which of the three objects to retrieve.
 * Manual operator override at any moment.
-* Validation of the simulation to physical portability, at the design and code level.
+* Validation of the simulation-to-physical portability at the design and code level.
 
 Out of scope:
 
 * Mapping and path planning around complex obstacles. The robot uses a reactive approach rather than SLAM.
-* Object recognition with deep learning. The project uses color (HSV), and ArUco markers stay as an optional improvement.
-* Running on a real physical robot. The unit is not available, so only code compatibility is validated.
+* Object recognition with deep learning or color (HSV). ArUco markers are the primary and only required detection method.
+* Deployment on a physical robot during this project phase. The physical robot is a future extension: because the code uses only the `stretch_toolkit` API, running on the real Stretch requires no code changes. This is validated by design but not tested on hardware.
 
 ## 4. Actors
 
@@ -53,8 +63,8 @@ Each RF lists its priority, the owner, the task that implements it and a short j
 | ID | Requirement | Priority | Owner | Task | Justification |
 |---|---|---|---|---|---|
 | RF-01 | The system must let the user select the target object through an accessible command (voice or large button). | High | Luis | T7 | It is the entry point that delivers the accessibility value. A user with reduced mobility cannot use a keyboard or gamepad. |
-| RF-02 | The system must detect the target object by color (HSV segmentation) in the RGB frame of the head camera. | High | Gustavo | T1 | It is the base of all autonomy, and the repo already ships a reusable color detection example. |
-| RF-03 | The system must estimate the 3D position of the object by combining the image centroid, the pixel depth and the camera intrinsics. | High | Gustavo | T1 | Without a 3D position the robot cannot approach or grasp. The toolkit already exposes `get_depth(pixel, depth_frame)`. |
+| RF-02 | The system must detect the target object by identifying its ArUco marker (ID 0 = medicine box, ID 1 = glass, ID 2 = tissue) in the RGB frame of the head camera using `cv2.aruco`. | High | Gustavo | T1 | ArUco markers are robust under the simulator's lighting conditions and transfer directly to the physical robot without recalibration. |
+| RF-03 | The system must estimate the 3D position of the detected object by combining the ArUco marker centroid, the pixel depth from the depth camera, and the camera intrinsics. | High | Gustavo | T1 | Without a 3D position the robot cannot approach or grasp. The toolkit already exposes the depth frame and camera intrinsics. |
 | RF-04 | The robot must run an autonomous search (rotating base and head) until it locates the object when it is outside the initial field of view. | High | Gustavo | T2 | The object will not always be in front of the robot, so the search makes the system genuinely autonomous. |
 | RF-05 | The robot must approach the object autonomously using base velocity control. | High | Gustavo | T2 | The object is usually outside the arm reach, so the mobile base has to reposition. |
 | RF-06 | The robot must perform fine alignment of the end effector through visual servoing with the wrist camera. | High | Gustavo | T3 | Base approach is not precise enough to grasp, so the wrist camera corrects the residual error. |
@@ -88,7 +98,7 @@ The hours add up to 80 (Gustavo) plus 30 (Luis), for a total of 110. Each task r
 | Task | Description | Hours | Requirements | Partial deliverable |
 |---|---|---:|---|---|
 | T0 | Environment setup, repo study (`teleop_demo.py`, `visual_servoing.py`, `stretch_toolkit`) and a short literature review on assistive robotics. | 8 | RNF-08 | Working environment and architecture notes. |
-| T1 | Perception module: multi object color detection (HSV) and 3D position estimation (pixel, depth and intrinsics). | 14 | RF-02, RF-03 | `perception.py` with `detect_object(color)`. |
+| T1 | Perception module: ArUco marker detection for the three target objects (IDs 0–2) and 3D position estimation (marker centroid, depth, and camera intrinsics). | 14 | RF-02, RF-03 | `perception.py` with `detect_object(frame, depth_frame)` returning object name, ArUco ID, and 3D position. |
 | T2 | Autonomous search and approach: rotate base and head to locate the object and use base velocity control to get closer. | 16 | RF-04, RF-05, RNF-03 | `search()` and `approach()` behaviors. |
 | T3 | Grasp pipeline: visual servoing alignment with the wrist camera, gripper close and grasp verification. | 16 | RF-06, RF-07 | `grasp()` behavior with verification. |
 | T4 | State machine integration (SEARCH to RELEASE) plus manual override and error transitions. | 12 | RF-08, RF-09, RF-11, RNF-02, RNF-05 | `state_machine.py` running end to end. |
@@ -143,16 +153,17 @@ The project is considered complete when:
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Color detection sensitive to lighting. | Medium | Calibrate the HSV ranges and offer ArUco markers as an improvement (more robust and easy to transfer to the physical robot). |
+| ArUco marker not visible (occlusion or angle). | Medium | The SEARCH state rotates the base and head until the marker enters the camera field of view. Maximum search angle is configurable via JSON. |
 | Imprecise grasp from depth error. | Medium | Wrist visual servoing as fine correction (RF-06) plus verification and retry (RF-07, RNF-05). |
+| ArUco texture not rendering clearly in MuJoCo. | Low | Generate the marker texture at high resolution (at least 200×200 px) and verify detection in simulation before proceeding to physical testing. |
 | Slow RoboCasa asset download (about 5 GB). | Low | Download at the start (T0). The core of the project also works in the simple block environment. |
 | Low performance with several cameras active. | Low | Enable only the cameras needed per state (RNF-03). |
-| Unreliable voice recognition. | Medium | Use a closed vocabulary (colors) and provide a button GUI as an equivalent alternative (RF-01). |
+| Unreliable voice recognition. | Medium | Use a closed vocabulary (three object names) and provide a button GUI as an equivalent alternative (RF-01). |
 
 ## 12. Glossary
 
 * **Digital twin:** simulated replica of the physical robot used for development and testing.
 * **Visual servoing:** controlling motion using real time camera feedback.
-* **HSV:** color space (hue, saturation, value) used to segment objects by color.
+* **ArUco marker:** a fiducial square marker with a unique binary ID that OpenCV can detect and identify in a camera image. Used here as the primary object identification method.
 * **Sim-to-real:** transfer of a behavior developed in simulation to the physical robot.
 * **State machine:** model that organizes behavior into defined states and transitions.
