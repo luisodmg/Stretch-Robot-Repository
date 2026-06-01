@@ -1,0 +1,52 @@
+{
+  "loop_hz": 30,
+  "perception": {
+    "aruco_dictionary": "DICT_4X4_50",
+    "depth_sample_radius": 3
+  },
+  "search": {
+    "base_turn_speed": 0.25,
+    "head_pan_speed": 0.18,
+    "head_sweep_hz": 0.2,
+    "timeout_s": 25.0
+  },
+  "approach": {
+    "desired_distance_m": 0.72,
+    "distance_tolerance_m": 0.08,
+    "forward_gain": 0.7,
+    "turn_gain": 0.8,
+    "head_pan_gain": 0.25,
+    "max_forward": 0.45,
+    "max_turn": 0.35
+  },
+  "align": {
+    "center_tolerance_px": 26.0,
+    "desired_distance_m": 0.34,
+    "distance_tolerance_m": 0.06,
+    "wrist_yaw_gain": 0.55,
+    "wrist_pitch_gain": 0.55,
+    "arm_gain": 0.9,
+    "max_wrist_speed": 0.45,
+    "max_arm_speed": 0.35,
+    "timeout_s": 18.0
+  },
+  "grasp": {
+    "close_speed": -1.0,
+    "close_time_s": 1.4,
+    "closed_threshold": 0.08,
+    "assume_success_without_gripper_state": true,
+    "retries": 2
+  },
+  "return": {
+    "distance_tolerance_m": 0.08,
+    "heading_tolerance_rad": 0.12,
+    "forward_gain": 0.85,
+    "turn_gain": 1.2,
+    "max_forward": 0.45,
+    "max_turn": 0.45
+  },
+  "release": {
+    "open_speed": 1.0,
+    "open_time_s": 1.1
+  }
+}

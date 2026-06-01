@@ -116,6 +116,31 @@ Key capabilities:
 
 The `teleop_demo.py` script at the root of this repo is the primary entry point for `stretch_toolkit` and demonstrates all of the above working together.
 
+## Stretch Assist Prototype
+
+The first implementation pass for `Stretch_Assist_Requirements.md` adds:
+
+- `perception.py`: ArUco ID 0-2 target detection plus RGB/depth 3D position estimation.
+- `accessible_ui.py`: a large-button accessible selector with console fallback and status feedback.
+- `state_machine.py`: SEARCH, APPROACH, ALIGN, GRASP, RETURN, and RELEASE orchestration using only `stretch_toolkit` controller, teleop, and camera APIs.
+- `stretch_assist_config.json`: hot-reloadable gains, speeds, thresholds, retries, and timing.
+
+Run the accessible selector and autonomous state machine:
+
+```
+uv run state_machine.py
+```
+
+Or skip the selector and request a known target:
+
+```
+uv run state_machine.py --target medicine_box
+uv run state_machine.py --target glass
+uv run state_machine.py --target tissue
+```
+
+Manual override remains active through the existing toolkit teleop provider; keyboard/gamepad input is merged over autonomous commands before velocities are sent to the robot.
+
 ## Writing Code
 
 Use the [StretchMujocoSimulator](https://github.com/SilentSammy/stretch_mujoco_digital_twin/tree/main/stretch_mujoco/stretch_mujoco.py) class to:
