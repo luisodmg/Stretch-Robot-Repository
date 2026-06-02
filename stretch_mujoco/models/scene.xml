@@ -12,12 +12,6 @@
     <texture type="2d" name="wood" file="wood.png" />
     <material name="wood" texture="wood" />
     <material name="object" rgba=".2 .2 .2 1" />
-    <texture type="2d" name="stretch_assist_aruco_0" file="stretch_assist_aruco_0.png" />
-    <texture type="2d" name="stretch_assist_aruco_1" file="stretch_assist_aruco_1.png" />
-    <texture type="2d" name="stretch_assist_aruco_2" file="stretch_assist_aruco_2.png" />
-    <material name="medicine_box_marker" texture="stretch_assist_aruco_0" rgba="1 1 1 1" />
-    <material name="glass_marker" texture="stretch_assist_aruco_1" rgba="1 1 1 1" />
-    <material name="tissue_marker" texture="stretch_assist_aruco_2" rgba="1 1 1 1" />
     <material name="medicine_box_body" rgba=".2 .35 .8 1" />
     <material name="glass_body" rgba=".8 .2 .2 1" />
     <material name="tissue_body" rgba=".95 .95 .95 1" />
