@@ -27,20 +27,20 @@ DEFAULT_CONFIG: dict = {
         "depth_sample_radius": 3,
     },
     "search": {
-        "base_turn_speed": 0.25,
+        "base_turn_speed": 0.0,
         "head_pan_speed": 0.18,
-        "head_tilt_speed": 1.0,
+        "head_tilt_speed": 0.45,
         "head_sweep_hz": 0.2,
         "timeout_s": 25.0,
     },
     "approach": {
-        "desired_distance_m": 0.72,
-        "distance_tolerance_m": 0.08,
-        "forward_gain": 0.7,
+        "desired_distance_m": 1.0,
+        "distance_tolerance_m": 0.1,
+        "forward_gain": 0.45,
         "turn_gain": 0.8,
         "head_pan_gain": 0.25,
-        "max_forward": 0.45,
-        "max_turn": 0.35,
+        "max_forward": 0.18,
+        "max_turn": 0.18,
     },
     "align": {
         "center_tolerance_px": 26.0,
@@ -259,7 +259,7 @@ class StretchAssistStateMachine:
 
         distance_error = depth_m - float(cfg["desired_distance_m"])
         if (
-            abs(distance_error) <= float(cfg["distance_tolerance_m"])
+            depth_m <= float(cfg["desired_distance_m"]) + float(cfg["distance_tolerance_m"])
             and abs(image_error_x) <= 0.12
         ):
             self._transition(AssistState.ALIGN, "close enough for wrist alignment")

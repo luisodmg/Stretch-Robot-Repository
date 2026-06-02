@@ -97,6 +97,29 @@ def test_approach_transitions_to_align_when_centered_and_close(tmp_path: Path):
     assert controller.commands[-1] == {}
 
 
+def test_approach_does_not_drive_forward_when_too_close_and_off_center(tmp_path: Path):
+    controller = FakeController()
+    camera = FakeCamera()
+
+    def detector(*args, **kwargs):
+        return _detection(depth=0.72, center=(80.0, 50.0))
+
+    machine = StretchAssistStateMachine(
+        controller=controller,
+        head_camera=camera,
+        wrist_camera=camera,
+        config_path=tmp_path / "assist.json",
+        detector=detector,
+    )
+    machine.request(0)
+    machine.state = AssistState.APPROACH
+
+    state = machine.step()
+
+    assert state == AssistState.APPROACH
+    assert controller.commands[-1]["base_forward"] <= 0.0
+
+
 def test_search_sweeps_head_tilt_when_target_missing(tmp_path: Path):
     controller = FakeController()
     camera = FakeCamera()
@@ -115,3 +138,4 @@ def test_search_sweeps_head_tilt_when_target_missing(tmp_path: Path):
     assert state == AssistState.SEARCH
     assert "head_tilt_up" in controller.commands[-1]
     assert controller.commands[-1]["head_tilt_up"] != 0.0
+    assert controller.commands[-1].get("base_counterclockwise", 0.0) == 0.0
