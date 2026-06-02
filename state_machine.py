@@ -212,14 +212,14 @@ class StretchAssistStateMachine:
                 self.step()
                 time.sleep(1.0 / float(self.config.get("loop_hz", 30)))
         except KeyboardInterrupt:
-            self.abort("interrupted")
+            self._transition(AssistState.ABORTED, "interrupted")
         finally:
-            self._send_command({})
+            self._send_command({}, ignore_connection_error=True)
         return self.state
 
     def abort(self, reason: str) -> None:
         self._transition(AssistState.ABORTED, reason)
-        self._send_command({})
+        self._send_command({}, ignore_connection_error=True)
 
     def _step_search(self, now: float) -> dict[str, float]:
         cfg = self.config.section("search")
@@ -425,12 +425,22 @@ class StretchAssistStateMachine:
             return None
         return BasePose(float(state["base_x"]), float(state["base_y"]), float(state["base_theta"]))
 
-    def _send_command(self, command: dict[str, float]) -> None:
+    def _send_command(
+        self,
+        command: dict[str, float],
+        *,
+        ignore_connection_error: bool = False,
+    ) -> None:
         if self.teleop is not None and hasattr(self.teleop, "get_manual_override"):
             command = self.teleop.get_manual_override(command)
 
         self.last_command = command
-        self.controller.set_velocities(command)
+        try:
+            self.controller.set_velocities(command)
+        except ConnectionError:
+            if ignore_connection_error:
+                return
+            raise
 
     def _transition(self, state: AssistState, message: str | None = None) -> None:
         if self.state == state and message is None:
@@ -493,7 +503,12 @@ def _deep_merge(base: dict, override: Mapping) -> dict:
     return base
 
 
-def run_stretch_assist(target: str | int | None = None, *, config_path: str | Path | None = None):
+def run_stretch_assist(
+    target: str | int | None = None,
+    *,
+    config_path: str | Path | None = None,
+    use_teleop: bool = True,
+):
     """Launch Stretch Assist using the active ``stretch_toolkit`` backend."""
 
     from accessible_ui import AccessibleCommandInterface, FeedbackChannel
@@ -508,7 +523,7 @@ def run_stretch_assist(target: str | int | None = None, *, config_path: str | Pa
 
     machine = StretchAssistStateMachine(
         controller=controller,
-        teleop=teleop,
+        teleop=teleop if use_teleop else None,
         head_camera=HEAD_CAMERA,
         wrist_camera=WRIST_CAMERA,
         config_path=config_path or Path(__file__).with_name("stretch_assist_config.json"),
@@ -530,8 +545,13 @@ def main() -> None:
         default=str(Path(__file__).with_name("stretch_assist_config.json")),
         help="Path to hot-reloadable Stretch Assist JSON config.",
     )
+    parser.add_argument(
+        "--no-teleop",
+        action="store_true",
+        help="Disable keyboard/gamepad override for autonomous simulator testing.",
+    )
     args = parser.parse_args()
-    run_stretch_assist(args.target, config_path=args.config)
+    run_stretch_assist(args.target, config_path=args.config, use_teleop=not args.no_teleop)
 
 
 if __name__ == "__main__":
