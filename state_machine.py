@@ -17,7 +17,7 @@ from pathlib import Path
 import time
 from typing import Callable, Mapping
 
-from perception import DetectedObject, TARGET_OBJECTS, detect_object, target_id_for_name
+from perception import DetectedObject, TARGET_OBJECTS, detect_object, detect_objects, target_id_for_name
 
 
 DEFAULT_CONFIG: dict = {
@@ -28,9 +28,9 @@ DEFAULT_CONFIG: dict = {
     },
     "search": {
         "base_turn_speed": 0.0,
-        "head_pan_speed": 0.18,
-        "head_tilt_speed": 0.45,
-        "head_sweep_hz": 0.2,
+        "head_pan_speed": 0.75,
+        "head_tilt_speed": 0.75,
+        "head_sweep_hz": 0.05,
         "timeout_s": 25.0,
     },
     "approach": {
@@ -138,6 +138,7 @@ class StretchAssistStateMachine:
         wrist_camera=None,
         config_path: str | Path = "stretch_assist_config.json",
         detector: Callable[..., DetectedObject | None] = detect_object,
+        debug_perception: bool = False,
         feedback: Callable[[str, str | None], None] | None = None,
     ):
         self.controller = controller
@@ -146,6 +147,8 @@ class StretchAssistStateMachine:
         self.wrist_camera = wrist_camera
         self.config = HotReloadJsonConfig(config_path)
         self.detector = detector
+        self.debug_perception = debug_perception
+        self._last_perception_debug_at = 0.0
         self.feedback = feedback or self._print_feedback
 
         self.state = AssistState.IDLE
@@ -365,7 +368,43 @@ class StretchAssistStateMachine:
             dictionary_name=cfg["aruco_dictionary"],
             depth_sample_radius=int(cfg["depth_sample_radius"]),
         )
+        if self.debug_perception and detection is None:
+            self._debug_visible_markers(frame, depth_frame, camera, cfg)
         return detection, frame
+
+    def _debug_visible_markers(self, frame, depth_frame, camera, cfg: Mapping) -> None:
+        now = time.monotonic()
+        if now - self._last_perception_debug_at < 1.0:
+            return
+        self._last_perception_debug_at = now
+
+        try:
+            visible = detect_objects(
+                frame,
+                depth_frame,
+                camera_info=camera,
+                dictionary_name=cfg["aruco_dictionary"],
+                depth_sample_radius=int(cfg["depth_sample_radius"]),
+            )
+        except Exception as exc:
+            print(f"[Stretch Assist] perception debug: failed: {exc}")
+            return
+
+        head_state = self._read_head_pose()
+        pose = ""
+        if head_state is not None:
+            pan, tilt = head_state
+            pose = f" head_pan={pan:.2f} head_tilt={tilt:.2f}"
+        if visible:
+            labels = ", ".join(
+                f"id={item.aruco_id} depth={item.depth_m:.2f}m"
+                if item.depth_m is not None
+                else f"id={item.aruco_id} depth=?"
+                for item in visible
+            )
+        else:
+            labels = "none"
+        print(f"[Stretch Assist] perception debug:{pose} visible={labels}")
 
     def _verify_grasp(self) -> bool:
         cfg = self.config.section("grasp")
@@ -414,6 +453,19 @@ class StretchAssistStateMachine:
                 heading_error * float(cfg["turn_gain"]), float(cfg["max_turn"])
             ),
         }, False
+
+    def _read_head_pose(self) -> tuple[float, float] | None:
+        try:
+            state = self.controller.get_state()
+        except Exception:
+            return None
+
+        if not all(key in state for key in ("head_pan_counterclockwise", "head_tilt_up")):
+            return None
+        return (
+            float(state["head_pan_counterclockwise"]),
+            float(state["head_tilt_up"]),
+        )
 
     def _read_base_pose(self) -> BasePose | None:
         try:
@@ -508,6 +560,7 @@ def run_stretch_assist(
     *,
     config_path: str | Path | None = None,
     use_teleop: bool = True,
+    debug_perception: bool = False,
 ):
     """Launch Stretch Assist using the active ``stretch_toolkit`` backend."""
 
@@ -528,6 +581,7 @@ def run_stretch_assist(
         wrist_camera=WRIST_CAMERA,
         config_path=config_path or Path(__file__).with_name("stretch_assist_config.json"),
         feedback=feedback,
+        debug_perception=debug_perception,
     )
     machine.request(target)
     return machine.run()
@@ -550,8 +604,18 @@ def main() -> None:
         action="store_true",
         help="Disable keyboard/gamepad override for autonomous simulator testing.",
     )
+    parser.add_argument(
+        "--debug-perception",
+        action="store_true",
+        help="Print visible ArUco IDs during search for simulator debugging.",
+    )
     args = parser.parse_args()
-    run_stretch_assist(args.target, config_path=args.config, use_teleop=not args.no_teleop)
+    run_stretch_assist(
+        args.target,
+        config_path=args.config,
+        use_teleop=not args.no_teleop,
+        debug_perception=args.debug_perception,
+    )
 
 
 if __name__ == "__main__":
