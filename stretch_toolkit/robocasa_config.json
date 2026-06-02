@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "task": "PnPCounterToCab",
   "layout": 0,
   "style": 0,

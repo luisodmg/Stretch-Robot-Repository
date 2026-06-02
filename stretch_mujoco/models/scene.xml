@@ -1,36 +1,134 @@
 <mujoco model="stretch scene">
-  <include file="stretch.xml"/>
-  <include file="docking_station.xml"/>
-
-  <statistic center="0 0 .75" extent="1.2" meansize="0.05"/>
-
+  <include file="stretch.xml" />
+  <include file="docking_station.xml" />
+  <statistic center="0 0 .75" extent="1.2" meansize="0.05" />
   <visual>
-    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
-    <rgba haze="0.15 0.25 0.35 1"/>
-    <global azimuth="-120" elevation="-20"/>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <global azimuth="-120" elevation="-20" />
   </visual>
-
   <asset>
-    <material name="floor" rgba=".1 .1 .1 1" reflectance="0.1"/>
-    <texture type="2d" name="wood" file="wood.png"/>
-    <material name="wood" texture="wood"/>
-    <material name="object" rgba=".2 .2 .2 1"/>
-    <texture type="skybox" builtin="gradient" rgb1="0.44 0.80 1.00" rgb2="1 1 1" width="512" height="3072"/>
+    <material name="floor" rgba=".1 .1 .1 1" reflectance="0.1" />
+    <texture type="2d" name="wood" file="wood.png" />
+    <material name="wood" texture="wood" />
+    <material name="object" rgba=".2 .2 .2 1" />
+    <texture type="2d" name="stretch_assist_aruco_0" file="stretch_assist_aruco_0.png" />
+    <texture type="2d" name="stretch_assist_aruco_1" file="stretch_assist_aruco_1.png" />
+    <texture type="2d" name="stretch_assist_aruco_2" file="stretch_assist_aruco_2.png" />
+    <material name="medicine_box_marker" texture="stretch_assist_aruco_0" rgba="1 1 1 1" />
+    <material name="glass_marker" texture="stretch_assist_aruco_1" rgba="1 1 1 1" />
+    <material name="tissue_marker" texture="stretch_assist_aruco_2" rgba="1 1 1 1" />
+    <material name="medicine_box_body" rgba=".2 .35 .8 1" />
+    <material name="glass_body" rgba=".8 .2 .2 1" />
+    <material name="tissue_body" rgba=".95 .95 .95 1" />
+    <texture type="skybox" builtin="gradient" rgb1="0.44 0.80 1.00" rgb2="1 1 1" width="512" height="3072" />
+    <material name="stretch_assist_marker_white" rgba="1 1 1 1" />
+    <material name="stretch_assist_marker_black" rgba="0 0 0 1" />
   </asset>
-
   <worldbody>
-    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
-    <geom name="floor" size="0 0 0.05" type="plane" material="floor"/>
-    <body name="table" pos="0 -1 .24">
-      <geom type="box" size=".6 .5 .24" mass="1" material="wood"/>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true" />
+    <geom name="floor" size="0 0 0.05" type="plane" material="floor" />
+    <body name="table" pos=".85 0 .24">
+      <geom type="box" size=".6 .5 .24" mass="1" material="wood" />
     </body>
-    <body name="object1" pos="-.02 -0.55 .6">
-      <freejoint/>
-      <geom type="box" size=".02 .04 .04" mass=".5" rgba=".2 .2 .5 1"/>
+    <body name="medicine_box" pos=".65 -.24 .62">
+      <freejoint />
+      <geom type="box" size=".045 .035 .035" mass=".3" material="medicine_box_body" />
+      <geom name="medicine_box_aruco_0_white_base" type="box" size="0.09000 0.09000 .001" pos="0 0 0.03700" material="stretch_assist_marker_white" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_1" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_2" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_3" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_4" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_5" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_1_6" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_2_1" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_2_3" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_2_6" type="box" size="0.01125 0.01125 .0015" pos="0.03375 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_3_1" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_3_2" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_3_4" type="box" size="0.01125 0.01125 .0015" pos="0.01125 -0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_3_6" type="box" size="0.01125 0.01125 .0015" pos="0.01125 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_4_1" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_4_2" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_4_3" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_4_6" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_5_1" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_5_2" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_5_3" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_5_5" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_5_6" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_1" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_2" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_3" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_4" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.01125 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_5" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.03375 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="medicine_box_aruco_0_black_6_6" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.05625 0.04000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
     </body>
-    <body name="object2" pos=".08 -0.55 .6">
-      <freejoint/>
-      <geom type="cylinder" size=".02 .04 .04" mass=".5" rgba=".8 .2 .2 1"/>
+    <body name="glass" pos=".65 0 .62">
+      <freejoint />
+      <geom type="cylinder" size=".035 .045" mass=".3" material="glass_body" />
+      <geom name="glass_aruco_1_white_base" type="box" size="0.09000 0.09000 .001" pos="0 0 0.04700" material="stretch_assist_marker_white" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_1" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_2" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_3" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_4" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_5" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_1_6" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_1" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_2" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_3" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_4" type="box" size="0.01125 0.01125 .0015" pos="0.03375 -0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_5" type="box" size="0.01125 0.01125 .0015" pos="0.03375 -0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_2_6" type="box" size="0.01125 0.01125 .0015" pos="0.03375 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_3_1" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_3_6" type="box" size="0.01125 0.01125 .0015" pos="0.01125 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_4_1" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_4_3" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_4_4" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 -0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_4_6" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_5_1" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_5_3" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_5_5" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_5_6" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_1" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_2" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_3" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_4" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.01125 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_5" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.03375 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="glass_aruco_1_black_6_6" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.05625 0.05000" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+    </body>
+    <body name="tissue" pos=".65 .24 .62">
+      <freejoint />
+      <geom type="box" size=".055 .025 .012" mass=".1" material="tissue_body" />
+      <geom name="tissue_aruco_2_white_base" type="box" size="0.09000 0.09000 .001" pos="0 0 0.01400" material="stretch_assist_marker_white" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_1" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_2" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_3" type="box" size="0.01125 0.01125 .0015" pos="0.05625 0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_4" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_5" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_1_6" type="box" size="0.01125 0.01125 .0015" pos="0.05625 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_2_1" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_2_2" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_2_3" type="box" size="0.01125 0.01125 .0015" pos="0.03375 0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_2_6" type="box" size="0.01125 0.01125 .0015" pos="0.03375 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_3_1" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_3_2" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_3_3" type="box" size="0.01125 0.01125 .0015" pos="0.01125 0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_3_6" type="box" size="0.01125 0.01125 .0015" pos="0.01125 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_4_1" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_4_2" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_4_3" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_4_5" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 -0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_4_6" type="box" size="0.01125 0.01125 .0015" pos="-0.01125 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_5_1" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_5_4" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_5_6" type="box" size="0.01125 0.01125 .0015" pos="-0.03375 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_1" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_2" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_3" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_4" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.01125 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_5" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.03375 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
+      <geom name="tissue_aruco_2_black_6_6" type="box" size="0.01125 0.01125 .0015" pos="-0.05625 -0.05625 0.01700" material="stretch_assist_marker_black" contype="0" conaffinity="0" />
     </body>
   </worldbody>
 </mujoco>

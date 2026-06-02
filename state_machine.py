@@ -29,6 +29,7 @@ DEFAULT_CONFIG: dict = {
     "search": {
         "base_turn_speed": 0.25,
         "head_pan_speed": 0.18,
+        "head_tilt_speed": 1.0,
         "head_sweep_hz": 0.2,
         "timeout_s": 25.0,
     },
@@ -236,6 +237,7 @@ class StretchAssistStateMachine:
         return {
             "base_counterclockwise": float(cfg["base_turn_speed"]),
             "head_pan_counterclockwise": math.sin(phase) * float(cfg["head_pan_speed"]),
+            "head_tilt_up": math.cos(phase) * float(cfg.get("head_tilt_speed", 0.0)),
         }
 
     def _step_approach(self, now: float) -> dict[str, float]:

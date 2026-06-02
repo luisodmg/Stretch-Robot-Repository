@@ -95,3 +95,23 @@ def test_approach_transitions_to_align_when_centered_and_close(tmp_path: Path):
 
     assert state == AssistState.ALIGN
     assert controller.commands[-1] == {}
+
+
+def test_search_sweeps_head_tilt_when_target_missing(tmp_path: Path):
+    controller = FakeController()
+    camera = FakeCamera()
+
+    machine = StretchAssistStateMachine(
+        controller=controller,
+        head_camera=camera,
+        wrist_camera=camera,
+        config_path=tmp_path / "assist.json",
+        detector=lambda *args, **kwargs: None,
+    )
+    machine.request("medicine_box")
+
+    state = machine.step(now=machine.state_entered_at)
+
+    assert state == AssistState.SEARCH
+    assert "head_tilt_up" in controller.commands[-1]
+    assert controller.commands[-1]["head_tilt_up"] != 0.0
