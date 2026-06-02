@@ -78,6 +78,25 @@ The demo supports:
 - Runtime-toggleable camera displays (press 1-5 to enable/disable cameras)
 - Normalized velocity control
 
+## Stretch Assist
+
+Stretch Assist implements the assistive retrieval behavior described in `Stretch_Assist_Requirements.md`.
+
+Key modules:
+
+- `perception.py` detects ArUco marker IDs 0, 1, and 2 and projects marker depth into a 3D camera-frame point.
+- `state_machine.py` runs SEARCH, APPROACH, ALIGN, GRASP, RETURN, and RELEASE using only `stretch_toolkit` controller and camera interfaces.
+- `accessible_ui.py` provides a large-button target-selection interface for medicine box, glass, and tissue.
+- `stretch_assist_config.json` contains runtime-tunable gains, timeouts, retry limits, and success thresholds.
+
+Run the default target from Python:
+
+```bash
+uv run state_machine.py
+```
+
+The state machine accepts injected controller, camera, and teleop dependencies for tests, and the runtime entry point uses the active `stretch_toolkit` backend. Manual operator input is merged through `teleop.get_manual_override()`, so keyboard or gamepad control has priority over autonomous commands.
+
 ### Robocasa Kitchen Environments
 
 To use Robocasa kitchen environments:
