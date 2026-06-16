@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import numpy as np
@@ -127,6 +128,75 @@ def test_approach_drives_forward_until_target_is_abeam(tmp_path: Path):
 
     assert state == AssistState.APPROACH
     assert controller.commands[-1]["base_forward"] > 0.0
+
+
+def _integrate_base(controller, command, dt=0.05):
+    """Apply a differential-drive velocity command to the fake controller pose.
+
+    Mirrors the simulator convention where a positive ``base_counterclockwise``
+    command rotates the base clockwise (decreasing theta), so the controller's
+    sign handling is exercised here too.
+    """
+
+    forward = command.get("base_forward", 0.0)
+    turn = command.get("base_counterclockwise", 0.0)
+    controller.state["base_theta"] -= turn * dt
+    theta = controller.state["base_theta"]
+    controller.state["base_x"] += forward * math.cos(theta) * dt
+    controller.state["base_y"] += forward * math.sin(theta) * dt
+
+
+def test_request_sets_destination(tmp_path: Path):
+    controller = FakeController()
+    machine = StretchAssistStateMachine(
+        controller=controller,
+        config_path=tmp_path / "assist.json",
+        detector=lambda *args, **kwargs: None,
+    )
+    machine.request(0, destination="shelf")
+
+    assert machine.destination_name == "shelf"
+
+
+def test_return_navigates_to_destination_then_releases(tmp_path: Path):
+    controller = FakeController()
+    machine = StretchAssistStateMachine(
+        controller=controller,
+        config_path=tmp_path / "assist.json",
+        detector=lambda *args, **kwargs: None,
+    )
+    machine.request(0, destination="table")  # a delivery station ahead at +x 1.3
+    machine.state = AssistState.RETURN
+
+    state = AssistState.RETURN
+    for _ in range(8000):
+        state = machine.step()
+        if state != AssistState.RETURN:
+            break
+        _integrate_base(controller, controller.commands[-1])
+
+    # Drove to the station and handed off to the placing routine.
+    assert state == AssistState.PLACE
+    assert controller.state["base_x"] > 1.0
+
+
+def test_return_reverses_when_goal_is_behind(tmp_path: Path):
+    controller = FakeController()
+    machine = StretchAssistStateMachine(
+        controller=controller,
+        config_path=tmp_path / "assist.json",
+        detector=lambda *args, **kwargs: None,
+    )
+    machine.request(0, destination="table")  # station ahead at +x 1.3
+    controller.state["base_x"] = 2.0  # robot has driven past it, goal now behind
+    machine.state = AssistState.RETURN
+
+    machine.step()
+    command = controller.commands[-1]
+
+    # Goal is straight behind: reverse instead of spinning 180 degrees.
+    assert command.get("base_forward", 0.0) < 0.0
+    assert abs(command.get("base_counterclockwise", 0.0)) < 0.05
 
 
 def test_search_sweeps_head_tilt_when_target_missing(tmp_path: Path):

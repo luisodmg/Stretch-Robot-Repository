@@ -7,6 +7,12 @@ import sys
 import time
 from typing import Callable, Iterable
 
+from destinations import (
+    DEFAULT_DESTINATION,
+    DESTINATION_LABELS,
+    DESTINATION_ORDER,
+    destination_id_for_name,
+)
 from perception import TARGET_LABELS, TARGET_OBJECTS, target_id_for_name
 
 
@@ -67,6 +73,90 @@ class AccessibleCommandInterface:
                 self.feedback.announce("Interface", f"using console fallback ({exc})")
 
         return self._wait_with_console()
+
+    def wait_for_destination(self) -> str:
+        """Block until the user picks a drop-off point; returns its key."""
+
+        if not self.force_console:
+            try:
+                return self._destination_with_tk()
+            except Exception as exc:
+                self.feedback.announce("Interface", f"using console fallback ({exc})")
+
+        return self._destination_with_console()
+
+    def _destination_with_tk(self) -> str:
+        import tkinter as tk
+        from tkinter import font
+
+        chosen: dict[str, str] = {}
+        root = tk.Tk()
+        root.title(self.title)
+        root.geometry("640x420")
+        root.minsize(480, 320)
+        root.configure(bg="#f5f7fb")
+
+        title_font = font.Font(family="Segoe UI", size=28, weight="bold")
+        button_font = font.Font(family="Segoe UI", size=22, weight="bold")
+
+        tk.Label(
+            root, text="Choose destination", font=title_font, bg="#f5f7fb", fg="#102033"
+        ).pack(pady=(22, 16))
+
+        button_frame = tk.Frame(root, bg="#f5f7fb")
+        button_frame.pack(fill=tk.BOTH, expand=True, padx=28, pady=18)
+        button_frame.columnconfigure(tuple(range(len(DESTINATION_ORDER))), weight=1, uniform="dest")
+        button_frame.rowconfigure(0, weight=1)
+
+        palette = [("#2357a6", "#ffffff"), ("#13795b", "#ffffff"), ("#8b5a00", "#ffffff")]
+
+        def choose(name: str) -> None:
+            chosen["value"] = name
+            root.after(120, root.destroy)
+
+        for idx, name in enumerate(DESTINATION_ORDER):
+            bg, fg = palette[idx % len(palette)]
+            button = tk.Button(
+                button_frame,
+                text=DESTINATION_LABELS[name],
+                command=lambda value=name: choose(value),
+                font=button_font,
+                bg=bg,
+                fg=fg,
+                activebackground=bg,
+                activeforeground=fg,
+                relief=tk.FLAT,
+                bd=0,
+                padx=18,
+                pady=24,
+                wraplength=170,
+            )
+            button.grid(row=0, column=idx, sticky="nsew", padx=8, pady=8)
+            root.bind(str(idx + 1), lambda _event, value=name: choose(value))
+
+        root.bind("<Escape>", lambda _event: root.destroy())
+        root.mainloop()
+
+        if "value" not in chosen:
+            raise RuntimeError("no destination selected")
+        return chosen["value"]
+
+    def _destination_with_console(self) -> str:
+        prompt_lines = ["Select a destination:"]
+        for idx, name in enumerate(DESTINATION_ORDER, start=1):
+            prompt_lines.append(f"{idx}. {DESTINATION_LABELS[name]}")
+        prompt = "\n".join(prompt_lines) + f"\n[default: {DESTINATION_LABELS[DEFAULT_DESTINATION]}]\n> "
+
+        while True:
+            raw = input(prompt).strip()
+            if not raw:
+                return DEFAULT_DESTINATION
+            try:
+                if raw.isdigit() and 1 <= int(raw) <= len(DESTINATION_ORDER):
+                    return DESTINATION_ORDER[int(raw) - 1]
+                return destination_id_for_name(raw)
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
 
     def _selection(self, aruco_id: int, source: str) -> TargetSelection:
         return TargetSelection(

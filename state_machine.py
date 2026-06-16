@@ -17,6 +17,11 @@ from pathlib import Path
 import time
 from typing import Callable, Mapping
 
+from destinations import (
+    DEFAULT_DESTINATION,
+    DESTINATION_LABELS,
+    destination_id_for_name,
+)
 from perception import DetectedObject, TARGET_OBJECTS, detect_object, detect_objects, target_id_for_name
 
 
@@ -81,15 +86,33 @@ DEFAULT_CONFIG: dict = {
         "gripper_close_speed": -1.0,
         "gripper_close_time_s": 1.6,
         "lift_clearance_m": 0.18,
+        # After lifting, retract the arm to this extension so the object rides
+        # close to the base and stays put through turns during transport.
+        "carry_arm_out": 0.0,
     },
+    # RETURN now carries the grasped object to a chosen drop-off point, then
+    # RELEASE opens the gripper. Destinations are offsets (dx, dy, dtheta) from
+    # the robot's start pose; "user" (0,0,0) goes back to where it began. The
+    # base is differential drive, so the controller turns to face the goal and
+    # drives forward, reversing when the goal is straight behind (which avoids a
+    # 180-degree spin on the way home).
     "return": {
-        "distance_tolerance_m": 0.06,
-        "heading_tolerance_rad": 0.2,
+        "distance_tolerance_m": 0.08,
+        "heading_tolerance_rad": 0.15,
         "forward_gain": 1.6,
-        "turn_gain": 0.6,
-        "lateral_gain": 1.0,
-        "max_forward": 0.7,
-        "max_turn": 0.25,
+        "turn_gain": 1.2,
+        "max_forward": 0.6,
+        "max_turn": 0.6,
+        "reverse_bearing_rad": 2.356,
+        "default_destination": "person",
+        # Delivery stations sit along the -Y wall; the robot drives forward
+        # (facing +x) to each x and places the object on its -Y side, reusing the
+        # pickup arm geometry. Offsets are [dx, dy, dtheta] from the start pose.
+        "destinations": {
+            "table": [1.30, 0.0, 0.0],
+            "shelf": [1.90, 0.0, 0.0],
+            "person": [2.50, 0.0, 0.0],
+        },
     },
     "release": {
         "open_speed": 1.0,
@@ -115,6 +138,14 @@ _POSITION_COMMAND_SIGN: dict[str, float] = {
 }
 
 
+# The simulator maps a positive "base_counterclockwise" velocity to a CLOCKWISE
+# base rotation (decreasing base_theta), the opposite of its name. The base
+# navigation controller works in standard math convention (+ = counterclockwise),
+# so its turn commands are multiplied by this sign before being sent. Forward is
+# already correct (+ drives toward +x in the robot frame).
+_BASE_TURN_COMMAND_SIGN = -1.0
+
+
 class AssistState(str, Enum):
     IDLE = "IDLE"
     SEARCH = "SEARCH"
@@ -122,6 +153,7 @@ class AssistState(str, Enum):
     ALIGN = "ALIGN"
     GRASP = "GRASP"
     RETURN = "RETURN"
+    PLACE = "PLACE"
     RELEASE = "RELEASE"
     COMPLETE = "COMPLETE"
     ABORTED = "ABORTED"
@@ -196,6 +228,7 @@ class StretchAssistStateMachine:
         self.state = AssistState.IDLE
         self.target_id: int | None = None
         self.target_name: str | None = None
+        self.destination_name: str = DEFAULT_DESTINATION
         self.start_pose: BasePose | None = None
         self.last_detection: DetectedObject | None = None
         self.last_message: str | None = None
@@ -205,21 +238,31 @@ class StretchAssistStateMachine:
         # Scripted-manipulation sub-phase trackers.
         self._manip_phase = 0
         self._grasp_phase = 0
+        self._place_phase = 0
         self._grasp_lift_target: float | None = None
 
-    def request(self, target: str | int) -> None:
-        """Start a retrieval request for a target object."""
+    def request(self, target: str | int, destination: str | None = None) -> None:
+        """Start a retrieval request for a target object and drop-off point."""
 
         self.target_id = target_id_for_name(target)
         self.target_name = TARGET_OBJECTS[self.target_id]
+        if destination is not None:
+            self.set_destination(destination)
         self.start_pose = self._read_base_pose()
         self.last_detection = None
         self._manip_phase = 0
         self._grasp_phase = 0
+        self._place_phase = 0
         self._grasp_lift_target = None
         if self.vision is not None:
             self.vision.target_id = self.target_id
+        self.feedback("Destination", DESTINATION_LABELS.get(self.destination_name, self.destination_name))
         self._transition(AssistState.SEARCH, f"looking for {self.target_name}")
+
+    def set_destination(self, destination: str) -> None:
+        """Choose the drop-off point the object is carried to after grasping."""
+
+        self.destination_name = destination_id_for_name(destination)
 
     def step(self, now: float | None = None) -> AssistState:
         """Run one 30 Hz control step and return the current state."""
@@ -245,6 +288,8 @@ class StretchAssistStateMachine:
             command = self._step_grasp(now)
         elif self.state == AssistState.RETURN:
             command = self._step_return(now)
+        elif self.state == AssistState.PLACE:
+            command = self._step_place(now)
         elif self.state == AssistState.RELEASE:
             command = self._step_release(now)
         else:
@@ -409,12 +454,28 @@ class StretchAssistStateMachine:
             self._grasp_lift_target = current_lift + float(cfg["lift_clearance_m"])
             return {}
 
-        # phase 1: raise the lift. The gripper is left uncommanded so it holds
-        # its closed position while we transport the object.
-        command, reached = self._drive_joints_to({"lift_up": self._grasp_lift_target}, cfg)
+        if self._grasp_phase == 1:
+            # phase 1: raise the lift to clear the table, holding the gripper shut.
+            command, reached = self._drive_joints_to({"lift_up": self._grasp_lift_target}, cfg)
+            command["gripper_open"] = float(cfg["gripper_close_speed"])
+            if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+                self._grasp_phase = 2
+                self.state_entered_at = now
+                return command
+            return command
+
+        # phase 2: retract the arm to a tucked carry pose so the object rides
+        # close to the base and does not get flung out during base turns. Keep
+        # the gripper actively closed the whole time.
+        carry = {
+            "arm_out": float(cfg.get("carry_arm_out", 0.0)),
+            "lift_up": self._grasp_lift_target,
+        }
+        command, reached = self._drive_joints_to(carry, cfg)
+        command["gripper_open"] = float(cfg["gripper_close_speed"])
         if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
-            self._transition(AssistState.RETURN, "object grasped and lifted")
-            return {}
+            self._transition(AssistState.RETURN, "object secured for transport")
+            return command
         return command
 
     def _drive_joints_to(
@@ -470,13 +531,65 @@ class StretchAssistStateMachine:
         )
 
     def _step_return(self, now: float) -> dict[str, float]:
-        if self.start_pose is None:
+        target = self._destination_pose()
+        if target is None:
             self._transition(AssistState.RELEASE, "no start pose recorded")
             return {}
 
-        command, reached = self._command_to_start_pose()
+        command, reached = self._command_to_pose(target)
         if reached:
-            self._transition(AssistState.RELEASE, "back at user position")
+            label = DESTINATION_LABELS.get(self.destination_name, self.destination_name)
+            self._place_phase = 0
+            self._transition(AssistState.PLACE, f"arrived at {label}, placing object")
+            return {}
+        # Keep the gripper actively closed while driving so the object cannot slip.
+        command["gripper_open"] = float(self.config.section("manipulation")["gripper_close_speed"])
+        return command
+
+    def _step_place(self, now: float) -> dict[str, float]:
+        """Set the carried object down on the destination surface, then release.
+
+        Mirrors the pick: extend the arm out over the receiving surface (on the
+        robot's -Y side, like the pickup table), lower onto it, open the gripper,
+        then retract clear. Reuses the tuned pickup poses so no new heights need
+        tuning.
+        """
+
+        cfg = self.config.section("manipulation")
+        rel = self.config.section("release")
+        high = float(cfg["pregrasp"]["lift_up"])
+        extended = float(cfg["over_pose"]["arm_out"])
+        low = float(cfg["grasp_pose"]["lift_up"])
+        retracted = float(cfg.get("carry_arm_out", 0.0))
+        hold = {"gripper_open": float(cfg["gripper_close_speed"])}
+
+        if self._place_phase == 0:  # swing the arm out over the surface, staying high
+            command, reached = self._drive_joints_to({"lift_up": high, "arm_out": extended}, cfg)
+            command.update(hold)
+            if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+                self._place_phase = 1
+                self.state_entered_at = now
+            return command
+
+        if self._place_phase == 1:  # lower the object onto the surface
+            command, reached = self._drive_joints_to({"lift_up": low, "arm_out": extended}, cfg)
+            command.update(hold)
+            if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+                self._place_phase = 2
+                self.state_entered_at = now
+            return command
+
+        if self._place_phase == 2:  # open the gripper to release it onto the surface
+            if self._elapsed(now) < float(rel["open_time_s"]):
+                return {"gripper_open": float(rel["open_speed"])}
+            self._place_phase = 3
+            self.state_entered_at = now
+            return {}
+
+        # phase 3: retract and raise, leaving the object resting on the surface.
+        command, reached = self._drive_joints_to({"lift_up": high, "arm_out": retracted}, cfg)
+        if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+            self._transition(AssistState.COMPLETE, "object delivered")
             return {}
         return command
 
@@ -550,38 +663,69 @@ class StretchAssistStateMachine:
             f"{pose} visible={labels}"
         )
 
-    def _command_to_start_pose(self) -> tuple[dict[str, float], bool]:
+    def _destination_pose(self) -> BasePose | None:
+        """Absolute goal pose for the current destination.
+
+        Destinations are stored as ``[dx, dy, dtheta]`` offsets from the robot's
+        start pose, so the same numbers work regardless of where the run began.
+        """
+
+        if self.start_pose is None:
+            return None
+        cfg = self.config.section("return")
+        offsets = cfg.get("destinations", {})
+        offset = offsets.get(self.destination_name, [0.0, 0.0, 0.0])
+        dx, dy, dtheta = (float(offset[0]), float(offset[1]), float(offset[2]))
+
+        c, s = math.cos(self.start_pose.theta), math.sin(self.start_pose.theta)
+        return BasePose(
+            self.start_pose.x + dx * c - dy * s,
+            self.start_pose.y + dx * s + dy * c,
+            _wrap_angle(self.start_pose.theta + dtheta),
+        )
+
+    def _command_to_pose(self, target: BasePose) -> tuple[dict[str, float], bool]:
+        """Differential-drive controller that drives the base to ``target``.
+
+        Turns to face the goal and drives forward, choosing reverse when the goal
+        is behind so a return-to-start does not spin 180 degrees. Forward speed is
+        scaled by how well the base is aligned, so it turns in place first and
+        only commits to driving once roughly pointed at the goal.
+        """
+
         cfg = self.config.section("return")
         current = self._read_base_pose()
-        if current is None or self.start_pose is None:
+        if current is None or target is None:
             return {}, True
 
-        dx = self.start_pose.x - current.x
-        dy = self.start_pose.y - current.y
+        dx = target.x - current.x
+        dy = target.y - current.y
         distance = math.hypot(dx, dy)
-        final_heading_error = _wrap_angle(self.start_pose.theta - current.theta)
 
         if distance <= float(cfg["distance_tolerance_m"]):
-            if abs(final_heading_error) <= float(cfg["heading_tolerance_rad"]):
+            heading_error = _wrap_angle(target.theta - current.theta)
+            if abs(heading_error) <= float(cfg["heading_tolerance_rad"]):
                 return {}, True
-            return {
-                "base_counterclockwise": _clamp(
-                    final_heading_error * float(cfg["turn_gain"]), float(cfg["max_turn"])
-                )
-            }, False
+            turn = _BASE_TURN_COMMAND_SIGN * heading_error * float(cfg["turn_gain"])
+            return {"base_counterclockwise": _clamp(turn, float(cfg["max_turn"]))}, False
 
-        # Approach kept the heading at ~0, so the start pose is straight behind.
-        # Drive in the robot frame (reverse allowed) instead of spinning 180 deg
-        # to face the goal, which avoids the wobble seen on the way back.
-        forward_err = dx * math.cos(current.theta) + dy * math.sin(current.theta)
-        # Hold the original heading; a small correction also nulls any y drift.
-        lateral_err = -dx * math.sin(current.theta) + dy * math.cos(current.theta)
-        heading_cmd = final_heading_error * float(cfg["turn_gain"]) + lateral_err * float(
-            cfg.get("lateral_gain", 1.0)
-        )
+        # Only treat the goal as "behind" (drive in reverse) when it is well past
+        # abeam; reversing exactly at +/-90 deg makes the controller chatter
+        # between forward and reverse and the base never commits to a turn.
+        reverse_threshold = float(cfg.get("reverse_bearing_rad", 2.356))
+        bearing = _wrap_angle(math.atan2(dy, dx) - current.theta)
+        reverse = abs(bearing) > reverse_threshold
+        if reverse:
+            bearing = _wrap_angle(bearing - math.pi)
+
+        alignment = max(0.0, math.cos(bearing))  # 0 when sideways, 1 when facing
+        speed = _clamp(distance * float(cfg["forward_gain"]) * alignment, float(cfg["max_forward"]))
+        if reverse:
+            speed = -speed
+        turn = _BASE_TURN_COMMAND_SIGN * bearing * float(cfg["turn_gain"])
         return {
-            "base_forward": _clamp(forward_err * float(cfg["forward_gain"]), float(cfg["max_forward"])),
-            "base_counterclockwise": _clamp(heading_cmd, float(cfg["max_turn"])),
+            "base_forward": speed,
+            "base_counterclockwise": _clamp(turn, float(cfg["max_turn"])),
         }, False
 
     def _read_head_pose(self) -> tuple[float, float] | None:
@@ -689,6 +833,7 @@ def _deep_merge(base: dict, override: Mapping) -> dict:
 def run_stretch_assist(
     target: str | int | None = None,
     *,
+    destination: str | None = None,
     config_path: str | Path | None = None,
     use_teleop: bool = True,
     debug_perception: bool = False,
@@ -716,8 +861,13 @@ def run_stretch_assist(
     feedback.announce("Backend", BACKEND_NAME)
 
     if target is None:
-        selection = AccessibleCommandInterface(feedback=feedback).wait_for_target()
+        interface = AccessibleCommandInterface(feedback=feedback)
+        selection = interface.wait_for_target()
         target = selection.aruco_id
+        # Only prompt for a destination when the object was chosen interactively
+        # and one was not already passed in.
+        if destination is None:
+            destination = interface.wait_for_destination()
 
     vision = None
     if show_vision:
@@ -745,7 +895,7 @@ def run_stretch_assist(
         debug_perception=debug_perception,
         vision=vision,
     )
-    machine.request(target)
+    machine.request(target, destination=destination)
     return machine.run(max_runtime_s=max_runtime_s)
 
 
@@ -755,6 +905,12 @@ def main() -> None:
         "--target",
         choices=list(TARGET_OBJECTS.values()) + [str(item) for item in TARGET_OBJECTS],
         help="Target object to retrieve. If omitted, opens the accessible selector.",
+    )
+    parser.add_argument(
+        "--destination",
+        choices=list(DESTINATION_LABELS),
+        help="Where to carry the object after grasping. If omitted, the selector "
+        "asks (or defaults to 'user', back to the start).",
     )
     parser.add_argument(
         "--config",
@@ -796,6 +952,7 @@ def main() -> None:
     args = parser.parse_args()
     run_stretch_assist(
         args.target,
+        destination=args.destination,
         config_path=args.config,
         use_teleop=not args.no_teleop,
         debug_perception=args.debug_perception,

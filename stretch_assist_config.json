@@ -44,16 +44,23 @@
     },
     "gripper_close_speed": -1.0,
     "gripper_close_time_s": 1.6,
-    "lift_clearance_m": 0.18
+    "lift_clearance_m": 0.18,
+    "carry_arm_out": 0.0
   },
   "return": {
-    "distance_tolerance_m": 0.06,
-    "heading_tolerance_rad": 0.2,
+    "distance_tolerance_m": 0.08,
+    "heading_tolerance_rad": 0.15,
     "forward_gain": 1.6,
-    "turn_gain": 0.6,
-    "lateral_gain": 1.0,
-    "max_forward": 0.7,
-    "max_turn": 0.25
+    "turn_gain": 1.2,
+    "max_forward": 0.6,
+    "max_turn": 0.6,
+    "reverse_bearing_rad": 2.356,
+    "default_destination": "person",
+    "destinations": {
+      "table": [1.30, 0.0, 0.0],
+      "shelf": [1.90, 0.0, 0.0],
+      "person": [2.50, 0.0, 0.0]
+    }
   },
   "release": {
     "open_speed": 1.0,
