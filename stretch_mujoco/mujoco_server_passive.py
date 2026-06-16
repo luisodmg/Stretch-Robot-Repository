@@ -84,6 +84,15 @@ class MujocoServerPassive(MujocoServer):
             # Replace the camera_lock with the viewer lock so that we're not accessing mjdata at the same time as the physics thread.
             self.camera_manager.camera_lock = viewer.lock() #type: ignore
 
+            # The "below requested FPS" warning floods the terminal on machines
+            # that cannot sustain the render rate (e.g. software/experimental GL),
+            # drowning out useful logs. Suppress it entirely with STRETCH_SIM_QUIET=1,
+            # otherwise rate-limit it to at most one message every few seconds.
+            import os
+            quiet_fps = os.getenv("STRETCH_SIM_QUIET", "0") == "1"
+            fps_warn_interval_s = 5.0
+            last_fps_warn_at = 0.0
+
             while viewer.is_running() and not self._is_requested_to_stop():
                 fps.tick()
                 start_time = time.perf_counter()
@@ -97,7 +106,8 @@ class MujocoServerPassive(MujocoServer):
                 if time_until_next_ui_update > 0:
                     # Put the UI thread to sleep so that the physics thread can do work, to mitigate `viewer.lock()` taking up ticks.
                     time.sleep(time_until_next_ui_update)
-                else:
+                elif not quiet_fps and (time.perf_counter() - last_fps_warn_at) > fps_warn_interval_s:
+                    last_fps_warn_at = time.perf_counter()
                     click.secho(
                         f"WARNING: Passive viewer and camera rendering is below the requested {1/self.camera_manager.camera_rate}FPS on the last render.",
                         fg="yellow",

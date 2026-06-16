@@ -106,6 +106,16 @@ if not USE_PHYSICAL:
             
             # Prepare simulator initialization kwargs
             sim_kwargs = {'cameras_to_use': []}  # Keep camera loading separate
+
+            # Allow lowering the camera/viewer render rate to avoid the
+            # "below the requested FPS" warning spam on slower machines.
+            # Set STRETCH_SIM_CAMERA_HZ (e.g. 12) before first controller use.
+            try:
+                camera_hz = float(os.getenv('STRETCH_SIM_CAMERA_HZ', '') or 0)
+                if camera_hz > 0:
+                    sim_kwargs['camera_hz'] = camera_hz
+            except ValueError:
+                pass
             
             if robocasa_config:
                 # Generate robocasa model from config parameters

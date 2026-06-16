@@ -14,6 +14,11 @@ class FakeController:
             "base_y": 0.0,
             "base_theta": 0.0,
             "gripper_open": 0.0,
+            "head_pan_counterclockwise": 0.0,
+            "head_tilt_up": 0.0,
+            "lift_up": 0.0,
+            "arm_out": 0.0,
+            "wrist_yaw_counterclockwise": 0.0,
         }
 
     def set_velocities(self, command):
@@ -78,8 +83,11 @@ def test_approach_transitions_to_align_when_centered_and_close(tmp_path: Path):
     controller = FakeController()
     camera = FakeCamera()
 
+    # Base has driven past the odometry stop point, so the object is abeam.
+    controller.state["base_x"] = 0.6
+
     def detector(*args, **kwargs):
-        return _detection(depth=0.72, center=(50.0, 50.0))
+        return _detection(depth=0.55, center=(50.0, 50.0))
 
     machine = StretchAssistStateMachine(
         controller=controller,
@@ -97,12 +105,13 @@ def test_approach_transitions_to_align_when_centered_and_close(tmp_path: Path):
     assert controller.commands[-1] == {}
 
 
-def test_approach_does_not_drive_forward_when_too_close_and_off_center(tmp_path: Path):
+def test_approach_drives_forward_until_target_is_abeam(tmp_path: Path):
     controller = FakeController()
     camera = FakeCamera()
 
     def detector(*args, **kwargs):
-        return _detection(depth=0.72, center=(80.0, 50.0))
+        # Marker off-center: the object is ahead, not yet beside the robot.
+        return _detection(depth=0.4, center=(80.0, 50.0))
 
     machine = StretchAssistStateMachine(
         controller=controller,
@@ -117,7 +126,7 @@ def test_approach_does_not_drive_forward_when_too_close_and_off_center(tmp_path:
     state = machine.step()
 
     assert state == AssistState.APPROACH
-    assert controller.commands[-1]["base_forward"] <= 0.0
+    assert controller.commands[-1]["base_forward"] > 0.0
 
 
 def test_search_sweeps_head_tilt_when_target_missing(tmp_path: Path):

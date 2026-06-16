@@ -122,9 +122,13 @@ class StretchCameras(Enum):
         if self == StretchCameras.cam_d435i_rgb:
             return CameraSettings(
                 field_of_view_vertical_in_degrees=42,  # from spec
-                focal=(304.24, 304.07),  # from calibration on SE3-3044
-                width=424,  # from webteleop
-                height=240,  # from webteleop
+                # Rendered at 1280x720 so small ArUco markers keep enough pixels
+                # to be detected (a 5 cm marker is only ~12 px at 424x240 but
+                # ~35 px at 720p from 1 m). Focal scaled to match the render
+                # height at the 42 deg vertical FOV: 0.5*720/tan(21 deg).
+                focal=(937.83, 937.83),
+                width=1280,
+                height=720,
                 sensor_resolution=(1920, 1080),  # from ov2740 spec
                 # sensor_pixel_size_micrometers=1.4 # from ov2740 spec
             )

@@ -1,8 +1,47 @@
 # Stretch Assist Handoff
 
-Date: 2026-06-01
+Date: 2026-06-01 (updated 2026-06-02)
 Branch: `main`
 Latest reviewed remote commit: `16288d5 fix: widen stretch assist head search`
+
+## Update 2026-06-02 — end-to-end demo working
+
+The workflow now runs **SEARCH → APPROACH → ALIGN → GRASP → RETURN → RELEASE →
+COMPLETE** reliably, with a live robot-vision window. Key changes this session:
+
+- **Live robot-vision window** (`vision_window.py`): shows the head (D435i) camera
+  with each ArUco drawn (box, ID, label, real distance) plus a state/target banner.
+  This is the "what the robot sees + detects" view for the demo. Head-only by default
+  (`--show-wrist` to add the D405) because the experimental Xe GL driver cannot render
+  multiple offscreen cameras + the viewer at once — that is why the wrist showed
+  "no signal".
+- **Side-grasp geometry fix**: Stretch grasps to its **right side (-Y)** at the base x
+  (`link_grasp_center` ≈ `(base_x-0.02, -0.415-arm_out, lift+0.115)`), never in front.
+  The scene table + objects were moved to that side (`scene.xml`) so the arm can reach.
+  APPROACH now drives straight in and **stops by odometry** at the x where the target is
+  abeam (`approach.stop_base_x_by_target`), which is precise enough for the side grasp.
+- **Scripted manipulation** (`manipulation` config): deterministic closed-loop joint
+  control (pregrasp → reach → close → lift), all tunable live via the hot-reloaded JSON.
+- **Sign fix**: head/wrist `joint_max_speeds` are negative in the sim, so position
+  control flips those joints (`_POSITION_COMMAND_SIGN`).
+- **Polish**: FPS warning spam silenced (`STRETCH_SIM_QUIET` + rate-limit in
+  `mujoco_server_passive.py`); Ctrl+C / sim-disconnect no longer throws; perception
+  debug prints the camera name; new flags `--no-vision`, `--show-wrist`, `--loud-sim`,
+  `--max-runtime`. Tests: 9 passed.
+
+The glass is now physically grasped, lifted, carried back, and released. Tuning that
+made it work (all in the hot-reloaded JSON):
+- Table moved away from the robot (`scene.xml`: table `(0.35,-0.80,...)`, objects y=-0.70)
+  so the base has ~0.4 m clearance and does not crash into the table.
+- Grasp is a 3-phase descend-from-above (`manipulation.pregrasp`/`over_pose`/`grasp_pose`)
+  to avoid ramming the light object sideways.
+- Glass thinned to a `r=0.015` cylinder with friction so the gripper fingers enclose it.
+- Final knobs: `grasp_pose` lift=0.50 arm=0.34, `approach.stop_base_x_by_target."1"`=0.38.
+- ArUco markers scaled to 0.7× so they look like labels, not giant plates (still detected
+  at the ~1 m search distance). They are non-colliding overlays, so the gripper passes
+  through them harmlessly — expected behavior.
+
+The original issues below are resolved.
 
 ## Objective
 

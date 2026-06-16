@@ -491,13 +491,17 @@ def _get_nav_cam_frame():
 # D435i head camera (simulated)
 HEAD_CAMERA = DepthCamInfo(
     name="D435i Head (Sim)",
+    # Head camera renders at 1280x720 (see stretch_cameras.py). The simulator
+    # builds K from the vertical FOV and the render resolution, so RGB and depth
+    # share the same intrinsics: fx=fy=0.5*720/tan(21 deg)=937.83, principal
+    # point at the image center.
     rgb_cam=CamInfo(
         name="D435i RGB",
         frame_getter=_get_head_rgb_frame,
         camera_matrix=np.array([
-            [303.07223511, 0.0,         122.78679657],
-            [0.0,          303.06060791, 210.94392395],
-            [0.0,          0.0,          1.0]
+            [937.83, 0.0,    640.0],
+            [0.0,    937.83, 360.0],
+            [0.0,    0.0,    1.0]
         ]),
         distortion_coeffs=np.array([0., 0., 0., 0., 0.]),
         distortion_model="inverse_brown_conrady"
@@ -506,9 +510,9 @@ HEAD_CAMERA = DepthCamInfo(
         name="D435i Depth",
         frame_getter=_get_head_depth_frame,
         camera_matrix=np.array([
-            [214.76873779, 0.0,         120.41242218],
-            [0.0,          214.76873779, 209.7878418],
-            [0.0,          0.0,          1.0]
+            [937.83, 0.0,    640.0],
+            [0.0,    937.83, 360.0],
+            [0.0,    0.0,    1.0]
         ]),
         distortion_coeffs=np.array([0., 0., 0., 0., 0.]),
         distortion_model="brown_conrady"

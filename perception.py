@@ -134,8 +134,14 @@ def detect_objects(
     dictionary_name: str = "DICT_4X4_50",
     depth_sample_radius: int = 3,
     depth_scale: float | None = None,
+    detection_upscale: float | str = "auto",
 ) -> list[DetectedObject]:
-    """Detect all visible Stretch Assist targets, largest marker first."""
+    """Detect all visible Stretch Assist targets, largest marker first.
+
+    ``detection_upscale`` controls the small-marker upscaling pass: ``"auto"``
+    (default) upscales low-resolution frames automatically, a number forces a
+    fixed factor, and ``1`` disables it. See :func:`_detection_scale`.
+    """
 
     if frame is None:
         return []
@@ -144,7 +150,15 @@ def detect_objects(
     dictionary = _get_dictionary(aruco, dictionary_name)
     parameters = _get_detector_parameters(aruco)
     gray = _to_grayscale(frame)
-    corners, ids = _detect_markers(aruco, gray, dictionary, parameters)
+
+    scale = _detection_scale(gray, detection_upscale)
+    corners, ids = _detect_markers(aruco, gray, dictionary, parameters, scale=scale)
+    # Fall back to a more aggressive upscale if nothing was found natively; this
+    # rescues markers that sit just below the detection threshold.
+    if (ids is None or len(ids) == 0) and scale < 2.0:
+        corners, ids = _detect_markers(
+            aruco, gray, dictionary, parameters, scale=2.0
+        )
 
     if ids is None or len(ids) == 0:
         return []
@@ -233,18 +247,92 @@ def _get_dictionary(aruco, dictionary_name: str):
 
 
 def _get_detector_parameters(aruco):
-    if hasattr(aruco, "DetectorParameters"):
-        return aruco.DetectorParameters()
-    return aruco.DetectorParameters_create()
+    """Detector parameters tuned for small / low-resolution markers.
+
+    The simulator head camera renders at 424x240, so a marker seen from a
+    normal grasping distance only spans a few dozen pixels. The OpenCV defaults
+    are tuned for larger markers and start dropping detections well before the
+    marker becomes truly unreadable. These tweaks widen the adaptive-threshold
+    search, lower the minimum perimeter so small markers are not rejected
+    outright, and enable subpixel corner refinement for steadier pose/centroid
+    estimates. See :func:`_detection_scale` for the complementary upscaling.
+    """
+
+    params = (
+        aruco.DetectorParameters()
+        if hasattr(aruco, "DetectorParameters")
+        else aruco.DetectorParameters_create()
+    )
+
+    # Adaptive thresholding: allow smaller windows so thin marker borders are
+    # found, and step through a range of window sizes.
+    params.adaptiveThreshWinSizeMin = 3
+    params.adaptiveThreshWinSizeMax = 23
+    params.adaptiveThreshWinSizeStep = 4
+
+    # Accept markers that occupy a smaller fraction of the image. The default
+    # (0.03) rejects markers that are small in the frame, which is exactly our
+    # case once the physical marker is shrunk.
+    params.minMarkerPerimeterRate = 0.01
+    params.maxMarkerPerimeterRate = 4.0
+
+    # Be a little more forgiving about corner geometry on blurry small markers.
+    params.polygonalApproxAccuracyRate = 0.06
+    params.minCornerDistanceRate = 0.04
+    params.minOtsuStdDev = 4.0
+    params.perspectiveRemoveIgnoredMarginPerCell = 0.13
+
+    # Subpixel corner refinement keeps centroids/distance stable when the
+    # marker is only a handful of pixels across.
+    refine = getattr(aruco, "CORNER_REFINE_SUBPIX", None)
+    if refine is not None:
+        params.cornerRefinementMethod = refine
+
+    return params
 
 
-def _detect_markers(aruco, gray, dictionary, parameters):
+def _detection_scale(gray: np.ndarray, upscale: float | str) -> float:
+    """Resolve the upscaling factor used before marker detection.
+
+    ``"auto"`` upscales low-resolution frames so the short side reaches roughly
+    480 px (capped at 3x), which is where small-marker detection becomes
+    reliable without wasting compute on already-large frames. A numeric value is
+    used as-is.
+    """
+
+    if upscale != "auto":
+        return max(1.0, float(upscale))
+
+    short_side = min(gray.shape[:2])
+    if short_side <= 0:
+        return 1.0
+    target_short_side = 480
+    scale = target_short_side / short_side
+    return float(min(3.0, max(1.0, round(scale))))
+
+
+def _detect_markers(aruco, gray, dictionary, parameters, scale: float = 1.0):
+    """Detect markers, optionally on an upscaled copy of ``gray``.
+
+    Corner coordinates are mapped back to the original ``gray`` resolution so
+    all downstream geometry (centroid, area, depth sampling) stays in native
+    pixels regardless of the upscaling.
+    """
+
+    image = gray
+    if scale > 1.0:
+        image = cv2.resize(
+            gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+        )
+
     if hasattr(aruco, "ArucoDetector"):
         detector = aruco.ArucoDetector(dictionary, parameters)
-        corners, ids, _ = detector.detectMarkers(gray)
-        return corners, ids
+        corners, ids, _ = detector.detectMarkers(image)
+    else:
+        corners, ids, _ = aruco.detectMarkers(image, dictionary, parameters=parameters)
 
-    corners, ids, _ = aruco.detectMarkers(gray, dictionary, parameters=parameters)
+    if scale > 1.0 and corners:
+        corners = [np.asarray(c, dtype=np.float32) / scale for c in corners]
     return corners, ids
 
 

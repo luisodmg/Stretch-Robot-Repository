@@ -26,52 +26,92 @@ DEFAULT_CONFIG: dict = {
         "aruco_dictionary": "DICT_4X4_50",
         "depth_sample_radius": 3,
     },
+    # The objects sit on a table to the robot's right (-Y). Search aims the head
+    # at that side and sweeps it to find the marker.
     "search": {
-        "base_turn_speed": 0.0,
-        "head_pan_speed": 0.75,
-        "head_tilt_speed": 0.75,
-        "head_sweep_hz": 0.05,
-        "timeout_s": 25.0,
+        "center_pan": -1.0,
+        "center_tilt": -0.7,
+        "sweep_pan": 0.6,
+        "head_sweep_hz": 0.1,
+        "head_gain": 2.0,
+        "timeout_s": 30.0,
     },
+    # Approach drives straight forward (no base rotation, so the side grasp stays
+    # predictable) and stops by odometry at the x where the target is exactly
+    # abeam and within the arm's reach. Vision still runs for the live window and
+    # to confirm the target before approaching. stop_base_x is per target id:
+    # gripper x = base_x - 0.021, objects are at x = 0.25 / 0.45 / 0.65.
     "approach": {
-        "desired_distance_m": 1.0,
-        "distance_tolerance_m": 0.1,
-        "forward_gain": 0.45,
-        "turn_gain": 0.8,
-        "head_pan_gain": 0.25,
-        "max_forward": 0.18,
-        "max_turn": 0.18,
+        "head_pan": -1.5,
+        "head_tilt": -0.75,
+        "head_gain": 2.0,
+        "forward_speed": 0.4,
+        "min_forward": 0.16,
+        "approach_gain": 2.5,
+        "stop_base_x_by_target": {"0": 0.23, "1": 0.38, "2": 0.53},
+        "stop_base_x_default": 0.38,
+        "base_x_tolerance_m": 0.01,
+        "timeout_s": 40.0,
     },
-    "align": {
-        "center_tolerance_px": 26.0,
-        "desired_distance_m": 0.34,
-        "distance_tolerance_m": 0.06,
-        "wrist_yaw_gain": 0.55,
-        "wrist_pitch_gain": 0.55,
-        "arm_gain": 0.9,
-        "max_wrist_speed": 0.45,
-        "max_arm_speed": 0.35,
-        "timeout_s": 18.0,
-    },
-    "grasp": {
-        "close_speed": -1.0,
-        "close_time_s": 1.4,
-        "closed_threshold": 0.08,
-        "assume_success_without_gripper_state": True,
-        "retries": 2,
+    # Deterministic, camera-free manipulation. The robot has already centered
+    # and approached the object with the head camera; these absolute joint
+    # targets drive a reliable scripted pick. Tune them live: the JSON config is
+    # hot-reloaded, so you can adjust while the simulator runs.
+    "manipulation": {
+        "position_gain": 3.0,
+        "joint_tolerance_m": 0.02,
+        "gripper_tolerance_m": 0.01,
+        "phase_timeout_s": 8.0,
+        # Phase 1: lift high, arm retracted, gripper open.
+        "pregrasp": {
+            "lift_up": 0.66,
+            "arm_out": 0.0,
+            "wrist_yaw_counterclockwise": 0.0,
+            "gripper_open": 0.04,
+        },
+        # Phase 2: still high, extend the arm so the open gripper is OVER the object.
+        "over_pose": {
+            "arm_out": 0.34,
+        },
+        # Phase 3: lower the gripper down around the object (no sideways ramming).
+        "grasp_pose": {
+            "lift_up": 0.5,
+            "arm_out": 0.34,
+        },
+        "gripper_close_speed": -1.0,
+        "gripper_close_time_s": 1.6,
+        "lift_clearance_m": 0.18,
     },
     "return": {
-        "distance_tolerance_m": 0.08,
-        "heading_tolerance_rad": 0.12,
-        "forward_gain": 0.85,
-        "turn_gain": 1.2,
-        "max_forward": 0.45,
-        "max_turn": 0.45,
+        "distance_tolerance_m": 0.06,
+        "heading_tolerance_rad": 0.2,
+        "forward_gain": 1.6,
+        "turn_gain": 0.6,
+        "lateral_gain": 1.0,
+        "max_forward": 0.7,
+        "max_turn": 0.25,
     },
     "release": {
         "open_speed": 1.0,
         "open_time_s": 1.1,
     },
+}
+
+
+# Sign mapping a positive normalized velocity command to an INCREASE in the
+# measured joint position (get_state). The simulator's joint_max_speeds are
+# negative for the head and wrist joints, so a positive command there actually
+# decreases the position. Closed-loop position control must flip those joints;
+# lift/arm/gripper already map positively.
+_POSITION_COMMAND_SIGN: dict[str, float] = {
+    "head_pan_counterclockwise": -1.0,
+    "head_tilt_up": -1.0,
+    "wrist_yaw_counterclockwise": -1.0,
+    "wrist_pitch_up": -1.0,
+    "wrist_roll_counterclockwise": -1.0,
+    "lift_up": 1.0,
+    "arm_out": 1.0,
+    "gripper_open": 1.0,
 }
 
 
@@ -140,6 +180,7 @@ class StretchAssistStateMachine:
         detector: Callable[..., DetectedObject | None] = detect_object,
         debug_perception: bool = False,
         feedback: Callable[[str, str | None], None] | None = None,
+        vision=None,
     ):
         self.controller = controller
         self.teleop = teleop
@@ -150,15 +191,21 @@ class StretchAssistStateMachine:
         self.debug_perception = debug_perception
         self._last_perception_debug_at = 0.0
         self.feedback = feedback or self._print_feedback
+        self.vision = vision
 
         self.state = AssistState.IDLE
         self.target_id: int | None = None
         self.target_name: str | None = None
         self.start_pose: BasePose | None = None
         self.last_detection: DetectedObject | None = None
-        self.grasp_attempts = 0
+        self.last_message: str | None = None
         self.state_entered_at = time.monotonic()
         self.last_command: dict[str, float] = {}
+
+        # Scripted-manipulation sub-phase trackers.
+        self._manip_phase = 0
+        self._grasp_phase = 0
+        self._grasp_lift_target: float | None = None
 
     def request(self, target: str | int) -> None:
         """Start a retrieval request for a target object."""
@@ -166,8 +213,12 @@ class StretchAssistStateMachine:
         self.target_id = target_id_for_name(target)
         self.target_name = TARGET_OBJECTS[self.target_id]
         self.start_pose = self._read_base_pose()
-        self.grasp_attempts = 0
         self.last_detection = None
+        self._manip_phase = 0
+        self._grasp_phase = 0
+        self._grasp_lift_target = None
+        if self.vision is not None:
+            self.vision.target_id = self.target_id
         self._transition(AssistState.SEARCH, f"looking for {self.target_name}")
 
     def step(self, now: float | None = None) -> AssistState:
@@ -213,12 +264,29 @@ class StretchAssistStateMachine:
                     break
 
                 self.step()
+                self._render_vision()
                 time.sleep(1.0 / float(self.config.get("loop_hz", 30)))
         except KeyboardInterrupt:
             self._transition(AssistState.ABORTED, "interrupted")
+        except ConnectionError:
+            # The simulator was stopped (e.g. window closed) mid-loop. Treat as
+            # a clean shutdown rather than surfacing a traceback.
+            self._transition(AssistState.ABORTED, "simulator disconnected")
         finally:
             self._send_command({}, ignore_connection_error=True)
+            if self.vision is not None:
+                self.vision.close()
         return self.state
+
+    def _render_vision(self) -> None:
+        if self.vision is None:
+            return
+        try:
+            still_open = self.vision.render(state=self.state.value, message=self.last_message)
+        except Exception:
+            return
+        if not still_open and self.state not in {AssistState.COMPLETE, AssistState.ABORTED}:
+            self.abort("vision window closed")
 
     def abort(self, reason: str) -> None:
         self._transition(AssistState.ABORTED, reason)
@@ -236,101 +304,170 @@ class StretchAssistStateMachine:
             self.abort("object not found")
             return {}
 
-        phase = self._elapsed(now) * float(cfg["head_sweep_hz"]) * math.tau
-        return {
-            "base_counterclockwise": float(cfg["base_turn_speed"]),
-            "head_pan_counterclockwise": math.sin(phase) * float(cfg["head_pan_speed"]),
-            "head_tilt_up": math.cos(phase) * float(cfg.get("head_tilt_speed", 0.0)),
+        # Aim the head at the grasp-side table and sweep the pan to scan it.
+        sweep = math.sin(self._elapsed(now) * float(cfg["head_sweep_hz"]) * math.tau)
+        targets = {
+            "head_pan_counterclockwise": float(cfg["center_pan"]) + sweep * float(cfg["sweep_pan"]),
+            "head_tilt_up": float(cfg["center_tilt"]),
         }
+        command, _ = self._drive_joints_to(
+            targets, {"position_gain": float(cfg["head_gain"]), "joint_tolerance_m": 0.05}
+        )
+        return command
 
     def _step_approach(self, now: float) -> dict[str, float]:
         cfg = self.config.section("approach")
-        detection, frame = self._detect_from_camera(self.head_camera)
-        if detection is None:
-            self._transition(AssistState.SEARCH, "lost target during approach")
-            return {}
 
-        self.last_detection = detection
-        image_error_x, _image_error_y = _normalized_image_error(detection, frame)
-        depth_m = detection.depth_m
-        if depth_m is None:
-            return {
-                "base_counterclockwise": _clamp(
-                    image_error_x * float(cfg["turn_gain"]), float(cfg["max_turn"])
-                )
-            }
-
-        distance_error = depth_m - float(cfg["desired_distance_m"])
-        if (
-            depth_m <= float(cfg["desired_distance_m"]) + float(cfg["distance_tolerance_m"])
-            and abs(image_error_x) <= 0.12
-        ):
-            self._transition(AssistState.ALIGN, "close enough for wrist alignment")
-            return {}
-
-        return {
-            "base_forward": _clamp(distance_error * float(cfg["forward_gain"]), float(cfg["max_forward"])),
-            "base_counterclockwise": _clamp(
-                image_error_x * float(cfg["turn_gain"]), float(cfg["max_turn"])
-            ),
-            "head_pan_counterclockwise": _clamp(
-                image_error_x * float(cfg["head_pan_gain"]), float(cfg["max_turn"])
-            ),
+        # Keep the head aimed at the grasp-side table so the live vision window
+        # keeps showing the target (perception runs purely for display here).
+        head_targets = {
+            "head_pan_counterclockwise": float(cfg["head_pan"]),
+            "head_tilt_up": float(cfg["head_tilt"]),
         }
+        head_cmd, _ = self._drive_joints_to(
+            head_targets, {"position_gain": float(cfg["head_gain"]), "joint_tolerance_m": 0.05}
+        )
+        detection, frame = self._detect_from_camera(self.head_camera)
+        if detection is not None:
+            self.last_detection = detection
+
+        pose = self._read_base_pose()
+        stop_x = self._stop_base_x(cfg)
+        if self.debug_perception:
+            depth_m = detection.depth_m if detection is not None else None
+            base_x = pose.x if pose is not None else 0.0
+            self._debug_approach(now, depth_m, base_x, stop_x)
+
+        # Stop by odometry at the x where the target is abeam and reachable. This
+        # is precise, unlike vision-only centering, so the side grasp lines up.
+        if pose is not None and pose.x >= stop_x - float(cfg["base_x_tolerance_m"]):
+            self._transition(AssistState.ALIGN, "object beside robot, ready to grasp")
+            return {}
+
+        if self._elapsed(now) > float(cfg["timeout_s"]):
+            self._transition(AssistState.ALIGN, "approach timed out, proceeding to grasp")
+            return {}
+
+        # Drive straight forward, slowing down near the stop point.
+        remaining = stop_x - (pose.x if pose is not None else 0.0)
+        forward = max(
+            float(cfg["min_forward"]),
+            min(float(cfg["forward_speed"]), remaining * float(cfg["approach_gain"])),
+        )
+        command = dict(head_cmd)
+        command["base_forward"] = forward
+        return command
+
+    def _stop_base_x(self, cfg: Mapping) -> float:
+        by_target = cfg.get("stop_base_x_by_target", {})
+        if self.target_id is not None and str(self.target_id) in by_target:
+            return float(by_target[str(self.target_id)])
+        return float(cfg.get("stop_base_x_default", 0.47))
 
     def _step_align(self, now: float) -> dict[str, float]:
-        cfg = self.config.section("align")
-        detection, frame = self._detect_from_camera(self.wrist_camera)
-        if detection is None:
-            if self._elapsed(now) > float(cfg["timeout_s"]):
-                self._transition(AssistState.SEARCH, "wrist camera lost target")
-            return {"arm_out": -0.15}
+        """Drive the arm to the grasp pose with closed-loop joint control.
 
-        self.last_detection = detection
-        err_x_norm, err_y_norm = _normalized_image_error(detection, frame)
-        err_x_px, err_y_px = _pixel_error(detection, frame)
-        depth_m = detection.depth_m
-        distance_error = None if depth_m is None else depth_m - float(cfg["desired_distance_m"])
+        Deterministic and camera-free (the head camera already approached the
+        object). To avoid ramming a light object sideways, the gripper goes:
+        1) high + retracted + open, 2) high + extended (over the object), then
+        3) descends around it. GRASP then closes and lifts.
+        """
 
-        centered = (
-            abs(err_x_px) <= float(cfg["center_tolerance_px"])
-            and abs(err_y_px) <= float(cfg["center_tolerance_px"])
-        )
-        depth_ready = distance_error is None or abs(distance_error) <= float(cfg["distance_tolerance_m"])
-        if centered and depth_ready:
-            self._transition(AssistState.GRASP, "aligned with target")
-            return {}
+        cfg = self.config.section("manipulation")
+        pre = dict(cfg["pregrasp"])
+        phases = [
+            pre,                                            # high, retracted, open
+            {**pre, **dict(cfg["over_pose"])},              # high, extended over object
+            {**pre, **dict(cfg["over_pose"]), **dict(cfg["grasp_pose"])},  # descend around it
+        ]
+        phase = min(self._manip_phase, len(phases) - 1)
+        command, reached = self._drive_joints_to(phases[phase], cfg)
 
-        command = {
-            "wrist_yaw_counterclockwise": _clamp(
-                err_x_norm * float(cfg["wrist_yaw_gain"]), float(cfg["max_wrist_speed"])
-            ),
-            "wrist_pitch_up": _clamp(
-                err_y_norm * float(cfg["wrist_pitch_gain"]), float(cfg["max_wrist_speed"])
-            ),
-        }
-        if distance_error is not None:
-            command["arm_out"] = _clamp(
-                distance_error * float(cfg["arm_gain"]), float(cfg["max_arm_speed"])
-            )
+        if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+            self._manip_phase += 1
+            self.state_entered_at = now  # restart the per-phase timeout
+            if self._manip_phase >= len(phases):
+                self._manip_phase = 0
+                self._grasp_phase = 0
+                self._grasp_lift_target = None
+                self._transition(AssistState.GRASP, "reached pre-grasp pose")
+                return {}
         return command
 
     def _step_grasp(self, now: float) -> dict[str, float]:
-        cfg = self.config.section("grasp")
-        if self._elapsed(now) < float(cfg["close_time_s"]):
-            return {"gripper_open": float(cfg["close_speed"])}
+        """Close the gripper, then lift the object clear of the table."""
 
-        if self._verify_grasp():
-            self._transition(AssistState.RETURN, "grasp verified")
+        cfg = self.config.section("manipulation")
+
+        if self._grasp_phase == 0:  # close the gripper for a fixed time
+            if self._elapsed(now) < float(cfg["gripper_close_time_s"]):
+                return {"gripper_open": float(cfg["gripper_close_speed"])}
+            self._grasp_phase = 1
+            self.state_entered_at = now
+            state = self._safe_state()
+            current_lift = float(state.get("lift_up", 0.58)) if state else 0.58
+            self._grasp_lift_target = current_lift + float(cfg["lift_clearance_m"])
             return {}
 
-        self.grasp_attempts += 1
-        if self.grasp_attempts > int(cfg["retries"]):
-            self.abort("grasp failed")
+        # phase 1: raise the lift. The gripper is left uncommanded so it holds
+        # its closed position while we transport the object.
+        command, reached = self._drive_joints_to({"lift_up": self._grasp_lift_target}, cfg)
+        if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+            self._transition(AssistState.RETURN, "object grasped and lifted")
             return {}
+        return command
 
-        self._transition(AssistState.ALIGN, f"retrying grasp {self.grasp_attempts}")
-        return {"gripper_open": 1.0}
+    def _drive_joints_to(
+        self, targets: Mapping[str, float], cfg: Mapping
+    ) -> tuple[dict[str, float], bool]:
+        """Proportional position control toward absolute joint targets.
+
+        Returns the normalized velocity command and whether every joint is
+        within tolerance. Stays within the ``stretch_toolkit`` velocity API so
+        it works on the simulator and on hardware.
+        """
+
+        state = self._safe_state()
+        if state is None:
+            return {}, False
+
+        gain = float(cfg.get("position_gain", 3.0))
+        tol = float(cfg.get("joint_tolerance_m", 0.02))
+        gtol = float(cfg.get("gripper_tolerance_m", 0.01))
+
+        command: dict[str, float] = {}
+        reached = True
+        for joint, target in targets.items():
+            current = state.get(joint)
+            if current is None:
+                continue
+            error = float(target) - float(current)
+            joint_tol = gtol if joint == "gripper_open" else tol
+            if abs(error) > joint_tol:
+                reached = False
+            sign = _POSITION_COMMAND_SIGN.get(joint, 1.0)
+            command[joint] = _clamp(error * gain * sign, 1.0)
+        return command, reached
+
+    def _safe_state(self) -> dict | None:
+        try:
+            return self.controller.get_state()
+        except Exception:
+            return None
+
+    def _debug_approach(self, now: float, depth_m, base_x: float, stop_x: float) -> None:
+        if now - self._last_perception_debug_at < 1.0:
+            return
+        self._last_perception_debug_at = now
+        pose = self._read_base_pose()
+        depth_txt = f"{depth_m:.2f}m" if depth_m is not None else "?"
+        extra = ""
+        if pose is not None:
+            extra = f" base=({pose.x:+.2f},{pose.y:+.2f},{pose.theta:+.2f})"
+        print(
+            f"[Stretch Assist] approach debug: depth={depth_txt} base_x={base_x:+.3f} "
+            f"target_x={stop_x:.3f}{extra}"
+        )
 
     def _step_return(self, now: float) -> dict[str, float]:
         if self.start_pose is None:
@@ -351,7 +488,9 @@ class StretchAssistStateMachine:
         self._transition(AssistState.COMPLETE, "delivery complete")
         return {}
 
-    def _detect_from_camera(self, camera) -> tuple[DetectedObject | None, object | None]:
+    def _detect_from_camera(
+        self, camera, camera_name: str = "head"
+    ) -> tuple[DetectedObject | None, object | None]:
         if camera is None:
             return None, None
 
@@ -369,10 +508,12 @@ class StretchAssistStateMachine:
             depth_sample_radius=int(cfg["depth_sample_radius"]),
         )
         if self.debug_perception and detection is None:
-            self._debug_visible_markers(frame, depth_frame, camera, cfg)
+            self._debug_visible_markers(frame, depth_frame, camera, cfg, camera_name)
         return detection, frame
 
-    def _debug_visible_markers(self, frame, depth_frame, camera, cfg: Mapping) -> None:
+    def _debug_visible_markers(
+        self, frame, depth_frame, camera, cfg: Mapping, camera_name: str = "head"
+    ) -> None:
         now = time.monotonic()
         if now - self._last_perception_debug_at < 1.0:
             return
@@ -404,19 +545,10 @@ class StretchAssistStateMachine:
             )
         else:
             labels = "none"
-        print(f"[Stretch Assist] perception debug:{pose} visible={labels}")
-
-    def _verify_grasp(self) -> bool:
-        cfg = self.config.section("grasp")
-        try:
-            state = self.controller.get_state()
-        except Exception:
-            return bool(cfg["assume_success_without_gripper_state"])
-
-        gripper = state.get("gripper_open")
-        if gripper is None:
-            return bool(cfg["assume_success_without_gripper_state"])
-        return float(gripper) <= float(cfg["closed_threshold"])
+        print(
+            f"[Stretch Assist] perception debug: camera={camera_name}"
+            f"{pose} visible={labels}"
+        )
 
     def _command_to_start_pose(self) -> tuple[dict[str, float], bool]:
         cfg = self.config.section("return")
@@ -438,20 +570,18 @@ class StretchAssistStateMachine:
                 )
             }, False
 
-        target_heading = math.atan2(dy, dx)
-        heading_error = _wrap_angle(target_heading - current.theta)
-        if abs(heading_error) > 0.35:
-            return {
-                "base_counterclockwise": _clamp(
-                    heading_error * float(cfg["turn_gain"]), float(cfg["max_turn"])
-                )
-            }, False
-
+        # Approach kept the heading at ~0, so the start pose is straight behind.
+        # Drive in the robot frame (reverse allowed) instead of spinning 180 deg
+        # to face the goal, which avoids the wobble seen on the way back.
+        forward_err = dx * math.cos(current.theta) + dy * math.sin(current.theta)
+        # Hold the original heading; a small correction also nulls any y drift.
+        lateral_err = -dx * math.sin(current.theta) + dy * math.cos(current.theta)
+        heading_cmd = final_heading_error * float(cfg["turn_gain"]) + lateral_err * float(
+            cfg.get("lateral_gain", 1.0)
+        )
         return {
-            "base_forward": _clamp(distance * float(cfg["forward_gain"]), float(cfg["max_forward"])),
-            "base_counterclockwise": _clamp(
-                heading_error * float(cfg["turn_gain"]), float(cfg["max_turn"])
-            ),
+            "base_forward": _clamp(forward_err * float(cfg["forward_gain"]), float(cfg["max_forward"])),
+            "base_counterclockwise": _clamp(heading_cmd, float(cfg["max_turn"])),
         }, False
 
     def _read_head_pose(self) -> tuple[float, float] | None:
@@ -499,6 +629,7 @@ class StretchAssistStateMachine:
             return
         self.state = state
         self.state_entered_at = time.monotonic()
+        self.last_message = message
         self.feedback(state.value, message)
 
     def _elapsed(self, now: float) -> float:
@@ -561,8 +692,22 @@ def run_stretch_assist(
     config_path: str | Path | None = None,
     use_teleop: bool = True,
     debug_perception: bool = False,
+    show_vision: bool = True,
+    show_wrist: bool = False,
+    quiet_sim: bool = True,
+    max_runtime_s: float | None = None,
 ):
     """Launch Stretch Assist using the active ``stretch_toolkit`` backend."""
+
+    import os
+
+    # Lower the simulator camera/viewer render rate and silence the recurring
+    # "below requested FPS" warning before the lazy controller spins up the
+    # MuJoCo process. Both env vars are read inside the simulator subprocess.
+    if quiet_sim:
+        if not os.getenv("STRETCH_SIM_CAMERA_HZ"):
+            os.environ["STRETCH_SIM_CAMERA_HZ"] = "12"
+        os.environ.setdefault("STRETCH_SIM_QUIET", "1")
 
     from accessible_ui import AccessibleCommandInterface, FeedbackChannel
     from stretch_toolkit import BACKEND_NAME, HEAD_CAMERA, WRIST_CAMERA, controller, teleop
@@ -574,6 +719,22 @@ def run_stretch_assist(
         selection = AccessibleCommandInterface(feedback=feedback).wait_for_target()
         target = selection.aruco_id
 
+    vision = None
+    if show_vision:
+        try:
+            from vision_window import VisionWindow
+
+            # Default to the head camera only: it is where the ArUco markers are
+            # visible, and this experimental-GL machine cannot reliably render
+            # the head + wrist offscreen cameras plus the viewer at once. The
+            # wrist (D405) view can be opted in with show_wrist=True.
+            vision = VisionWindow(
+                head_camera=HEAD_CAMERA,
+                wrist_camera=WRIST_CAMERA if show_wrist else None,
+            )
+        except Exception as exc:
+            print(f"[Stretch Assist] vision window unavailable: {exc}")
+
     machine = StretchAssistStateMachine(
         controller=controller,
         teleop=teleop if use_teleop else None,
@@ -582,9 +743,10 @@ def run_stretch_assist(
         config_path=config_path or Path(__file__).with_name("stretch_assist_config.json"),
         feedback=feedback,
         debug_perception=debug_perception,
+        vision=vision,
     )
     machine.request(target)
-    return machine.run()
+    return machine.run(max_runtime_s=max_runtime_s)
 
 
 def main() -> None:
@@ -609,12 +771,38 @@ def main() -> None:
         action="store_true",
         help="Print visible ArUco IDs during search for simulator debugging.",
     )
+    parser.add_argument(
+        "--no-vision",
+        action="store_true",
+        help="Disable the live robot-vision window.",
+    )
+    parser.add_argument(
+        "--show-wrist",
+        action="store_true",
+        help="Also show the wrist (D405) camera panel. May be unreliable on "
+        "machines that cannot render multiple offscreen cameras at once.",
+    )
+    parser.add_argument(
+        "--loud-sim",
+        action="store_true",
+        help="Keep the default 30 FPS render rate (and its FPS warning spam).",
+    )
+    parser.add_argument(
+        "--max-runtime",
+        type=float,
+        default=None,
+        help="Abort automatically after this many seconds (useful for demos/tests).",
+    )
     args = parser.parse_args()
     run_stretch_assist(
         args.target,
         config_path=args.config,
         use_teleop=not args.no_teleop,
         debug_perception=args.debug_perception,
+        show_vision=not args.no_vision,
+        show_wrist=args.show_wrist,
+        quiet_sim=not args.loud_sim,
+        max_runtime_s=args.max_runtime,
     )
 
 
