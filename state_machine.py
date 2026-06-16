@@ -83,6 +83,13 @@ DEFAULT_CONFIG: dict = {
             "lift_up": 0.5,
             "arm_out": 0.34,
         },
+        # Per-object grasp height (ArUco id -> lift). Taller objects are gripped
+        # lower so the gripper closes around the body's middle, not the top.
+        "grasp_lift_by_target": {
+            "0": 0.47,
+            "1": 0.45,
+            "2": 0.50,
+        },
         "gripper_close_speed": -1.0,
         "gripper_close_time_s": 1.6,
         "lift_clearance_m": 0.18,
@@ -298,8 +305,14 @@ class StretchAssistStateMachine:
         self._send_command(command)
         return self.state
 
-    def run(self, *, max_runtime_s: float | None = None) -> AssistState:
-        """Run until COMPLETE, ABORTED, or an optional timeout."""
+    def run(
+        self, *, max_runtime_s: float | None = None, close_vision: bool = True
+    ) -> AssistState:
+        """Run until COMPLETE, ABORTED, or an optional timeout.
+
+        Set ``close_vision=False`` to keep the live window open across several
+        missions (used by the interactive loop).
+        """
 
         start = time.monotonic()
         try:
@@ -319,9 +332,33 @@ class StretchAssistStateMachine:
             self._transition(AssistState.ABORTED, "simulator disconnected")
         finally:
             self._send_command({}, ignore_connection_error=True)
-            if self.vision is not None:
+            if close_vision and self.vision is not None:
                 self.vision.close()
         return self.state
+
+    def drive_base_to(
+        self, pose: "BasePose", *, timeout_s: float = 40.0
+    ) -> bool:
+        """Drive the base to ``pose`` and return whether it arrived.
+
+        Used between interactive missions to bring the robot back to its home
+        search position so the next pickup starts from the same place.
+        """
+
+        start = time.monotonic()
+        while time.monotonic() - start < timeout_s:
+            self.config.reload()
+            try:
+                command, reached = self._command_to_pose(pose)
+            except ConnectionError:
+                return False
+            if reached:
+                self._send_command({}, ignore_connection_error=True)
+                return True
+            self._send_command(command, ignore_connection_error=True)
+            self._render_vision()
+            time.sleep(1.0 / float(self.config.get("loop_hz", 30)))
+        return False
 
     def _render_vision(self) -> None:
         if self.vision is None:
@@ -409,6 +446,21 @@ class StretchAssistStateMachine:
             return float(by_target[str(self.target_id)])
         return float(cfg.get("stop_base_x_default", 0.47))
 
+    def _grasp_pose(self, cfg: Mapping) -> dict[str, float]:
+        """Grasp pose with a per-object lift height.
+
+        Objects have different heights, so a single lift grabs the tall glass
+        near its top (unstable) while suiting the flat tissue. ``grasp_lift_by_
+        target`` overrides the lift per ArUco id so each object is gripped around
+        its middle.
+        """
+
+        pose = dict(cfg["grasp_pose"])
+        by_target = cfg.get("grasp_lift_by_target", {})
+        if self.target_id is not None and str(self.target_id) in by_target:
+            pose["lift_up"] = float(by_target[str(self.target_id)])
+        return pose
+
     def _step_align(self, now: float) -> dict[str, float]:
         """Drive the arm to the grasp pose with closed-loop joint control.
 
@@ -423,7 +475,7 @@ class StretchAssistStateMachine:
         phases = [
             pre,                                            # high, retracted, open
             {**pre, **dict(cfg["over_pose"])},              # high, extended over object
-            {**pre, **dict(cfg["over_pose"]), **dict(cfg["grasp_pose"])},  # descend around it
+            {**pre, **dict(cfg["over_pose"]), **self._grasp_pose(cfg)},  # descend around it
         ]
         phase = min(self._manip_phase, len(phases) - 1)
         command, reached = self._drive_joints_to(phases[phase], cfg)
@@ -559,7 +611,7 @@ class StretchAssistStateMachine:
         rel = self.config.section("release")
         high = float(cfg["pregrasp"]["lift_up"])
         extended = float(cfg["over_pose"]["arm_out"])
-        low = float(cfg["grasp_pose"]["lift_up"])
+        low = float(self._grasp_pose(cfg)["lift_up"])  # set down at the grasp height
         retracted = float(cfg.get("carry_arm_out", 0.0))
         hold = {"gripper_open": float(cfg["gripper_close_speed"])}
 
@@ -834,6 +886,7 @@ def run_stretch_assist(
     target: str | int | None = None,
     *,
     destination: str | None = None,
+    interactive: bool = False,
     config_path: str | Path | None = None,
     use_teleop: bool = True,
     debug_perception: bool = False,
@@ -859,15 +912,6 @@ def run_stretch_assist(
 
     feedback = FeedbackChannel()
     feedback.announce("Backend", BACKEND_NAME)
-
-    if target is None:
-        interface = AccessibleCommandInterface(feedback=feedback)
-        selection = interface.wait_for_target()
-        target = selection.aruco_id
-        # Only prompt for a destination when the object was chosen interactively
-        # and one was not already passed in.
-        if destination is None:
-            destination = interface.wait_for_destination()
 
     vision = None
     if show_vision:
@@ -895,8 +939,61 @@ def run_stretch_assist(
         debug_perception=debug_perception,
         vision=vision,
     )
+
+    interface = AccessibleCommandInterface(feedback=feedback)
+
+    if interactive:
+        return _run_interactive(machine, interface, feedback, max_runtime_s=max_runtime_s)
+
+    if target is None:
+        selection = interface.wait_for_target()
+        target = selection.aruco_id
+        # Only prompt for a destination when the object was chosen interactively
+        # and one was not already passed in.
+        if destination is None:
+            destination = interface.wait_for_destination()
+
     machine.request(target, destination=destination)
     return machine.run(max_runtime_s=max_runtime_s)
+
+
+def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
+    """Keep accepting "grab object X, drop at Y" commands until the user quits.
+
+    Between missions the robot drives back to its home pickup position so each
+    new request starts from the same place. Closing the selector window (or
+    Ctrl-C) ends the session.
+    """
+
+    feedback.announce(
+        "Interactive", "pick an object, then a destination; close the selector or press Ctrl-C to quit"
+    )
+    home = machine._read_base_pose()
+
+    try:
+        while True:
+            try:
+                selection = interface.wait_for_target()
+                destination = interface.wait_for_destination()
+            except (RuntimeError, EOFError, KeyboardInterrupt):
+                break
+
+            if home is not None:
+                feedback.announce("Homing", "returning to the pickup area")
+                machine.drive_base_to(home)
+
+            machine.request(selection.aruco_id, destination=destination)
+            machine.run(max_runtime_s=max_runtime_s, close_vision=False)
+
+            # User closed the live window mid-mission -> quit the session.
+            if machine.vision is not None and getattr(machine.vision, "_closed", False):
+                break
+    finally:
+        if machine.vision is not None:
+            machine.vision.close()
+
+    feedback.announce("Interactive", "session ended")
+    return machine.state
 
 
 def main() -> None:
@@ -910,7 +1007,13 @@ def main() -> None:
         "--destination",
         choices=list(DESTINATION_LABELS),
         help="Where to carry the object after grasping. If omitted, the selector "
-        "asks (or defaults to 'user', back to the start).",
+        "asks (or defaults to 'person').",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Keep asking for object + destination and run repeated deliveries, "
+        "homing between missions. Close the selector or press Ctrl-C to quit.",
     )
     parser.add_argument(
         "--config",
@@ -953,6 +1056,7 @@ def main() -> None:
     run_stretch_assist(
         args.target,
         destination=args.destination,
+        interactive=args.interactive,
         config_path=args.config,
         use_teleop=not args.no_teleop,
         debug_perception=args.debug_perception,
