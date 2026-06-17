@@ -105,6 +105,11 @@ DEFAULT_CONFIG: dict = {
         "gripper_close_min_s": 0.6,
         "gripper_close_max_s": 2.5,
         "gripper_close_time_s": 1.6,
+        # Grasp-success check after closing: held fingers sit ~ -0.09..+0.09, an
+        # empty close goes to ~ -0.24, so anything at/below this is "missed" and
+        # the pick is retried (reopen + re-align) up to grasp_max_attempts.
+        "grasp_closed_threshold": -0.18,
+        "grasp_max_attempts": 3,
         "lift_clearance_m": 0.18,
         # After lifting, retract the arm to this extension so the object rides
         # close to the base and stays put through turns during transport.
@@ -268,6 +273,7 @@ class StretchAssistStateMachine:
         # actually finished closing on the object (not a fixed time).
         self._grasp_prev_grip: float | None = None
         self._grasp_grip_stable_since = 0.0
+        self._grasp_attempts = 0
 
     def request(self, target: str | int, destination: str | None = None) -> None:
         """Start a retrieval request for a target object and drop-off point."""
@@ -288,6 +294,7 @@ class StretchAssistStateMachine:
         self._grasp_lift_target = None
         self._grasp_prev_grip = None
         self._grasp_grip_stable_since = 0.0
+        self._grasp_attempts = 0
         if self.vision is not None:
             self.vision.target_id = self.target_id
         self.feedback("Destination", DESTINATION_LABELS.get(self.destination_name, self.destination_name))
@@ -565,7 +572,30 @@ class StretchAssistStateMachine:
             if elapsed < max_s and not (elapsed >= min_s and settled):
                 return {"gripper_open": float(cfg["gripper_close_speed"])}
 
-            # Fully closed -> now it is safe to lift.
+            # Fully closed -> check the finger position to tell a real grasp from
+            # closing on nothing. A held object keeps the fingers open (grip
+            # ~ -0.09..+0.09); an empty close goes far more negative (~ -0.24).
+            # The narrow box pick is a touch flaky, so on a miss reopen and try
+            # the whole align+grasp again instead of carrying air.
+            threshold = float(cfg.get("grasp_closed_threshold", -0.18))
+            if grip <= threshold:
+                self._grasp_attempts += 1
+                max_attempts = int(cfg.get("grasp_max_attempts", 3))
+                if self._grasp_attempts >= max_attempts:
+                    self.abort("could not grasp the object")
+                    return {}
+                self._manip_phase = 0
+                self._grasp_phase = 0
+                self._grasp_lift_target = None
+                self._grasp_prev_grip = None
+                self._grasp_grip_stable_since = now
+                self._transition(
+                    AssistState.ALIGN,
+                    f"grasp missed (grip {grip:.2f}), retry {self._grasp_attempts}/{max_attempts}",
+                )
+                return {"gripper_open": float(cfg["pregrasp"]["gripper_open"])}
+
+            # Held -> now it is safe to lift.
             self._grasp_phase = 1
             self.state_entered_at = now
             current_lift = float(state.get("lift_up", 0.58)) if state else 0.58

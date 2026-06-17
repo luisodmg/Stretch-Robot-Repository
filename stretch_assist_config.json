@@ -52,6 +52,8 @@
     "gripper_close_min_s": 0.6,
     "gripper_close_max_s": 2.5,
     "gripper_close_time_s": 1.6,
+    "grasp_closed_threshold": -0.18,
+    "grasp_max_attempts": 3,
     "lift_clearance_m": 0.18,
     "carry_arm_out": 0.0
   },
