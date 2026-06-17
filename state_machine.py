@@ -13,6 +13,7 @@ from enum import Enum
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import time
 from typing import Callable, Mapping
@@ -1010,21 +1011,51 @@ def run_stretch_assist(
         vision=vision,
     )
 
+    # Boot the simulator (and its MuJoCo window) BEFORE showing the selector, so
+    # the menu appears over a running sim instead of before it. The controller is
+    # lazily created, so touching it here forces start-up now.
+    feedback.announce("Simulator", "starting up...")
+    machine._read_base_pose()
+
     interface = AccessibleCommandInterface(feedback=feedback)
 
-    if interactive:
-        return _run_interactive(machine, interface, feedback, max_runtime_s=max_runtime_s)
+    try:
+        if interactive:
+            return _run_interactive(machine, interface, feedback, max_runtime_s=max_runtime_s)
 
-    if target is None:
-        selection = interface.wait_for_target()
-        target = selection.aruco_id
-        # Only prompt for a destination when the object was chosen interactively
-        # and one was not already passed in.
-        if destination is None:
-            destination = interface.wait_for_destination()
+        if target is None:
+            selection = interface.wait_for_target()
+            target = selection.aruco_id
+            # Only prompt for a destination when the object was chosen
+            # interactively and one was not already passed in.
+            if destination is None:
+                destination = interface.wait_for_destination()
 
-    machine.request(target, destination=destination)
-    return machine.run(max_runtime_s=max_runtime_s)
+        machine.request(target, destination=destination)
+        return machine.run(max_runtime_s=max_runtime_s)
+    except KeyboardInterrupt:
+        feedback.announce("Stretch Assist", "interrupted")
+        return machine.state
+    finally:
+        # Stop the simulator process so the program exits cleanly (Ctrl-C or the
+        # window's X) instead of hanging on the sim's non-daemon threads.
+        _shutdown_sim(feedback)
+
+
+def _shutdown_sim(feedback=None) -> None:
+    try:
+        import stretch_toolkit
+
+        sim = getattr(stretch_toolkit, "_sim", None)
+        if sim is not None:
+            if feedback is not None:
+                feedback.announce("Simulator", "shutting down")
+            # Stop the MuJoCo subprocess directly. sim.stop() also tries to join
+            # background threads with a 10s timeout each (~30s of hanging), which
+            # is what made the app feel like it never closed.
+            sim.stop_mujoco_process()
+    except Exception:
+        pass
 
 
 def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
@@ -1054,7 +1085,11 @@ def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
             machine.request(selection.aruco_id, destination=destination)
             machine.run(max_runtime_s=max_runtime_s, close_vision=False)
 
-            # User closed the live window mid-mission -> quit the session.
+            # Quit the session if the simulator was closed mid-mission (its X) or
+            # the live window was closed.
+            message = machine.last_message or ""
+            if machine.state == AssistState.ABORTED and "disconnect" in message:
+                break
             if machine.vision is not None and getattr(machine.vision, "_closed", False):
                 break
     finally:
@@ -1134,6 +1169,10 @@ def main() -> None:
         quiet_sim=not args.loud_sim,
         max_runtime_s=args.max_runtime,
     )
+    # The toolkit's gamepad listener is a non-daemon thread that keeps the
+    # process alive on a normal return. The sim subprocess was already stopped,
+    # so force an immediate clean exit.
+    os._exit(0)
 
 
 if __name__ == "__main__":
