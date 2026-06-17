@@ -40,10 +40,10 @@
     <body name="table" pos="0.35 -0.80 0.3">
       <geom type="box" size="0.30 0.20 0.3" mass="1" material="wood" />
     </body>
-    <body name="medicine_box" pos="0.20 -0.70 0.646">
+    <body name="medicine_box" pos="0.20 -0.70 0.64">
       <freejoint />
-      <geom type="cylinder" size="0.018 0.045" mass=".25" material="medicine_box_body" condim="6" friction="1.5 0.1 0.01" />
-      <geom name="medicine_box_aruco_0_marker" type="box" size="0.01800 0.01800 0.001" pos="0 0 0.04700" material="stretch_assist_aruco_0_mat" contype="0" conaffinity="0" />
+      <geom type="box" size="0.028 0.018 0.04" mass=".25" material="medicine_box_body" condim="6" friction="1.5 0.1 0.01" />
+      <geom name="medicine_box_aruco_0_marker" type="box" size="0.01800 0.01800 0.001" pos="0 0 0.04100" material="stretch_assist_aruco_0_mat" contype="0" conaffinity="0" />
     </body>
     <body name="glass" pos="0.35 -0.70 0.646">
       <freejoint />
@@ -52,7 +52,7 @@
     </body>
     <body name="tissue" pos="0.50 -0.70 0.64">
       <freejoint />
-      <geom type="cylinder" size="0.018 0.04" mass=".12" material="tissue_body" condim="6" friction="1.5 0.1 0.01" />
+      <geom type="box" size="0.018 0.018 0.04" mass=".12" material="tissue_body" condim="6" friction="1.5 0.1 0.01" />
       <geom name="tissue_aruco_2_marker" type="box" size="0.01800 0.01800 0.001" pos="0 0 0.04100" material="stretch_assist_aruco_2_mat" contype="0" conaffinity="0" />
     </body>
 

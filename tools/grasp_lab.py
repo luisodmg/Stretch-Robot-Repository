@@ -227,8 +227,12 @@ def film(machine, sim, head_cam, wrist_cam, session: Path, obj: str) -> None:
             record = time.time() - return_started < 3.0  # a few seconds after lift
         if record and n % 2 == 0:  # dense: every 2 control steps
             tag = f"{obj}_{saved:03d}_{state.value}"
-            _save_frame(frames_dir, f"{tag}_head", head_cam.rgb_cam.get_frame())
-            _save_frame(frames_dir, f"{tag}_wrist", wrist_cam.rgb_cam.get_frame())
+            # The GL backend can't render both offscreen cameras at once (the
+            # second comes back black), so alternate which one we pull.
+            if saved % 2 == 0:
+                _save_frame(frames_dir, f"{tag}_head", head_cam.rgb_cam.get_frame())
+            else:
+                _save_frame(frames_dir, f"{tag}_wrist", wrist_cam.rgb_cam.get_frame())
             if state in (AssistState.GRASP, AssistState.RETURN):
                 ee = sim.get_ee_pose()
                 print(

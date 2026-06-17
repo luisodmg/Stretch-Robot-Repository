@@ -83,12 +83,12 @@ DEFAULT_CONFIG: dict = {
         },
         # Phase 2: still high, extend the arm so the open gripper is OVER the object.
         "over_pose": {
-            "arm_out": 0.34,
+            "arm_out": 0.31,
         },
         # Phase 3: lower the gripper down around the object (no sideways ramming).
         "grasp_pose": {
             "lift_up": 0.5,
-            "arm_out": 0.34,
+            "arm_out": 0.31,
         },
         # Per-object grasp height (ArUco id -> lift). Shorter objects need a
         # LOWER grip so the fingers close around the body, not above it. Glass
@@ -96,9 +96,13 @@ DEFAULT_CONFIG: dict = {
         "grasp_lift_by_target": {
             "0": 0.45,
             "1": 0.45,
-            "2": 0.44,
+            "2": 0.45,
         },
         "gripper_close_speed": -1.0,
+        # Close the gripper for at least min, and keep closing until the fingers
+        # stop moving (settled on the object) or max is reached, BEFORE lifting.
+        "gripper_close_min_s": 0.6,
+        "gripper_close_max_s": 2.5,
         "gripper_close_time_s": 1.6,
         "lift_clearance_m": 0.18,
         # After lifting, retract the arm to this extension so the object rides
@@ -259,6 +263,10 @@ class StretchAssistStateMachine:
         self._grasp_phase = 0
         self._place_phase = 0
         self._grasp_lift_target: float | None = None
+        # Gripper-closure tracking, so the lift waits until the fingers have
+        # actually finished closing on the object (not a fixed time).
+        self._grasp_prev_grip: float | None = None
+        self._grasp_grip_stable_since = 0.0
 
     def request(self, target: str | int, destination: str | None = None) -> None:
         """Start a retrieval request for a target object and drop-off point."""
@@ -277,6 +285,8 @@ class StretchAssistStateMachine:
         self._grasp_phase = 0
         self._place_phase = 0
         self._grasp_lift_target = None
+        self._grasp_prev_grip = None
+        self._grasp_grip_stable_since = 0.0
         if self.vision is not None:
             self.vision.target_id = self.target_id
         self.feedback("Destination", DESTINATION_LABELS.get(self.destination_name, self.destination_name))
@@ -537,15 +547,29 @@ class StretchAssistStateMachine:
 
         cfg = self.config.section("manipulation")
 
-        if self._grasp_phase == 0:  # close the gripper for a fixed time
-            if self._elapsed(now) < float(cfg["gripper_close_time_s"]):
+        if self._grasp_phase == 0:
+            # Close the gripper and DON'T lift until the fingers have actually
+            # finished closing on the object (the finger position stops moving).
+            # A fixed close time let the lift start mid-close -> crooked grasps.
+            state = self._safe_state()
+            grip = float(state.get("gripper_open", 0.0)) if state else 0.0
+            elapsed = self._elapsed(now)
+            if self._grasp_prev_grip is None or abs(grip - self._grasp_prev_grip) > 0.004:
+                self._grasp_grip_stable_since = now  # still moving
+            self._grasp_prev_grip = grip
+
+            min_s = float(cfg.get("gripper_close_min_s", 0.6))
+            max_s = float(cfg.get("gripper_close_max_s", cfg.get("gripper_close_time_s", 2.5)))
+            settled = (now - self._grasp_grip_stable_since) >= 0.3
+            if elapsed < max_s and not (elapsed >= min_s and settled):
                 return {"gripper_open": float(cfg["gripper_close_speed"])}
+
+            # Fully closed -> now it is safe to lift.
             self._grasp_phase = 1
             self.state_entered_at = now
-            state = self._safe_state()
             current_lift = float(state.get("lift_up", 0.58)) if state else 0.58
             self._grasp_lift_target = current_lift + float(cfg["lift_clearance_m"])
-            return {}
+            return {"gripper_open": float(cfg["gripper_close_speed"])}
 
         if self._grasp_phase == 1:
             # phase 1: raise the lift to clear the table, holding the gripper shut.
