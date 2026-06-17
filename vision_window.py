@@ -47,6 +47,8 @@ class VisionWindow:
         dictionary_name: str = "DICT_4X4_50",
         depth_sample_radius: int = 3,
         window_name: str = "Stretch Assist - Robot Vision",
+        record_path: str | None = None,
+        record_fps: float = 20.0,
     ):
         self.head_camera = head_camera
         self.wrist_camera = wrist_camera
@@ -59,6 +61,13 @@ class VisionWindow:
         self._dual = wrist_camera is not None
         self._panel_w = _PANEL_W_DUAL if self._dual else _PANEL_W_SINGLE
         self._panel_h = _PANEL_H_DUAL if self._dual else _PANEL_H_SINGLE
+        # Optional screen recording: every composed frame is written to an mp4 so
+        # a run can be replayed for a demo. The writer is created lazily on the
+        # first frame (it needs the canvas size).
+        self.record_path = record_path
+        self.record_fps = record_fps
+        self._writer = None
+        self._frames_written = 0
 
     # -- public API ---------------------------------------------------------
 
@@ -77,6 +86,9 @@ class VisionWindow:
             if self._dual:
                 panels.append(self._build_panel(self.wrist_camera, "WRIST CAMERA (D405)"))
             canvas = self._compose(panels, state, message)
+
+            if self.record_path is not None:
+                self._record(canvas)
 
             if not self._created:
                 cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
@@ -100,9 +112,46 @@ class VisionWindow:
                 cv2.destroyWindow(self.window_name)
             except Exception:
                 pass
+        if self._writer is not None:
+            try:
+                self._writer.release()
+            except Exception:
+                pass
+            if self._frames_written:
+                print(
+                    f"[Vision] saved recording ({self._frames_written} frames) "
+                    f"to {self.record_path}"
+                )
+            self._writer = None
         self._closed = True
 
     # -- internals ----------------------------------------------------------
+
+    def _record(self, canvas: np.ndarray) -> None:
+        """Append one composed frame to the mp4, creating the writer lazily."""
+        try:
+            if self._writer is None:
+                import os
+
+                directory = os.path.dirname(self.record_path)
+                if directory:
+                    os.makedirs(directory, exist_ok=True)
+                h, w = canvas.shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                self._writer = cv2.VideoWriter(
+                    self.record_path, fourcc, float(self.record_fps), (w, h)
+                )
+                if not self._writer.isOpened():
+                    print(f"[Vision] could not open recorder at {self.record_path}")
+                    self.record_path = None
+                    self._writer = None
+                    return
+            self._writer.write(canvas)
+            self._frames_written += 1
+        except Exception as exc:  # pragma: no cover - recording must never crash a run
+            print(f"[Vision] recording skipped: {exc}")
+            self.record_path = None
+            self._writer = None
 
     def _build_panel(self, camera, title: str) -> np.ndarray:
         frame = self._grab_rgb(camera)

@@ -32,3 +32,6 @@ joint_pos.json
 
 # Local debugging telemetry sessions (frames + CSV)
 debug/sessions/
+
+# Demo session recordings
+recordings/

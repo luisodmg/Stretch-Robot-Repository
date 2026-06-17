@@ -995,6 +995,7 @@ def run_stretch_assist(
     show_wrist: bool = False,
     quiet_sim: bool = True,
     max_runtime_s: float | None = None,
+    record_path: str | None = None,
 ):
     """Launch Stretch Assist using the active ``stretch_toolkit`` backend."""
 
@@ -1026,9 +1027,14 @@ def run_stretch_assist(
             vision = VisionWindow(
                 head_camera=HEAD_CAMERA,
                 wrist_camera=WRIST_CAMERA if show_wrist else None,
+                record_path=record_path,
             )
+            if record_path:
+                feedback.announce("Recording", record_path)
         except Exception as exc:
             print(f"[Stretch Assist] vision window unavailable: {exc}")
+    elif record_path:
+        print("[Stretch Assist] --record needs the vision window; ignoring (do not pass --no-vision).")
 
     machine = StretchAssistStateMachine(
         controller=controller,
@@ -1186,7 +1192,23 @@ def main() -> None:
         default=None,
         help="Abort automatically after this many seconds (useful for demos/tests).",
     )
+    parser.add_argument(
+        "--record",
+        nargs="?",
+        const="__auto__",
+        default=None,
+        metavar="PATH",
+        help="Record the robot-vision window to an mp4 for demos. Pass a path, or "
+        "just --record to auto-name it under recordings/. Needs the vision window.",
+    )
     args = parser.parse_args()
+
+    record_path = args.record
+    if record_path == "__auto__":
+        import datetime as _dt
+
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        record_path = str(Path(__file__).with_name("recordings") / f"stretch_assist_{stamp}.mp4")
     run_stretch_assist(
         args.target,
         destination=args.destination,
@@ -1198,6 +1220,7 @@ def main() -> None:
         show_wrist=args.show_wrist,
         quiet_sim=not args.loud_sim,
         max_runtime_s=args.max_runtime,
+        record_path=record_path,
     )
     # The toolkit's gamepad listener is a non-daemon thread that keeps the
     # process alive on a normal return. The sim subprocess was already stopped,
