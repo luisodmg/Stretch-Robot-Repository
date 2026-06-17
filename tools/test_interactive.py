@@ -15,9 +15,9 @@ from perception import target_id_for_name
 from state_machine import StretchAssistStateMachine
 
 
-# One of each object to a different station; tests search, grasp detection,
-# and no-homing (each pickup starts from the previous station).
-MISSIONS = [("glass", "table"), ("medicine_box", "shelf"), ("tissue", "person")]
+# Place medicine, then re-grab it from the station (tests place-no-drop +
+# memory), then a fresh glass mission.
+MISSIONS = [("medicine_box", "table"), ("medicine_box", "shelf"), ("glass", "person")]
 
 
 def main() -> None:

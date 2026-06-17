@@ -36,13 +36,10 @@ DEFAULT_CONFIG: dict = {
     "search": {
         "center_pan": -1.0,
         "center_tilt": -0.7,
-        "sweep_pan": 1.1,          # wider: sweeps both ways across the table
-        "head_sweep_hz": 0.13,
+        "sweep_pan": 0.6,
+        "head_sweep_hz": 0.1,
         "head_gain": 2.0,
-        "timeout_s": 45.0,
-        # While searching, also drive the base toward where the object should be
-        # (its remembered/known spot) instead of giving up in place.
-        "drive_while_searching": True,
+        "timeout_s": 30.0,
     },
     # Approach drives straight forward (no base rotation, so the side grasp stays
     # predictable) and stops by odometry at the x where the target is exactly
@@ -99,7 +96,7 @@ DEFAULT_CONFIG: dict = {
         "grasp_lift_by_target": {
             "0": 0.45,
             "1": 0.45,
-            "2": 0.44,
+            "2": 0.42,
         },
         "gripper_close_speed": -1.0,
         "gripper_close_time_s": 1.6,
@@ -107,11 +104,6 @@ DEFAULT_CONFIG: dict = {
         # After lifting, retract the arm to this extension so the object rides
         # close to the base and stays put through turns during transport.
         "carry_arm_out": 0.0,
-        # Grasp success check: after closing, if the finger joint is MORE closed
-        # than this, the gripper grabbed nothing -> retry. Holding an object
-        # stops the fingers before this. Retry the whole pick up to N times.
-        "grasp_closed_threshold": -0.2,
-        "grasp_max_attempts": 3,
     },
     # RETURN now carries the grasped object to a chosen drop-off point, then
     # RELEASE opens the gripper. Destinations are offsets (dx, dy, dtheta) from
@@ -266,7 +258,6 @@ class StretchAssistStateMachine:
         self._manip_phase = 0
         self._grasp_phase = 0
         self._place_phase = 0
-        self._grasp_attempts = 0
         self._grasp_lift_target: float | None = None
 
     def request(self, target: str | int, destination: str | None = None) -> None:
@@ -285,7 +276,6 @@ class StretchAssistStateMachine:
         self._manip_phase = 0
         self._grasp_phase = 0
         self._place_phase = 0
-        self._grasp_attempts = 0
         self._grasp_lift_target = None
         if self.vision is not None:
             self.vision.target_id = self.target_id
@@ -412,7 +402,7 @@ class StretchAssistStateMachine:
             self.abort("object not found")
             return {}
 
-        # Sweep the head wide (both directions) to scan the table.
+        # Aim the head at the grasp-side table and sweep the pan to scan it.
         sweep = math.sin(self._elapsed(now) * float(cfg["head_sweep_hz"]) * math.tau)
         targets = {
             "head_pan_counterclockwise": float(cfg["center_pan"]) + sweep * float(cfg["sweep_pan"]),
@@ -421,13 +411,6 @@ class StretchAssistStateMachine:
         command, _ = self._drive_joints_to(
             targets, {"position_gain": float(cfg["head_gain"]), "joint_tolerance_m": 0.05}
         )
-
-        # If we still cannot see it, drive the base toward where the object
-        # should be (its remembered/known spot) instead of giving up in place.
-        if cfg.get("drive_while_searching", True) and self.target_id is not None:
-            base_cmd, reached = self._command_to_pose(self.preapproach_pose(self.target_id))
-            if not reached:
-                command.update(base_cmd)
         return command
 
     def _step_approach(self, now: float) -> dict[str, float]:
@@ -557,24 +540,9 @@ class StretchAssistStateMachine:
         if self._grasp_phase == 0:  # close the gripper for a fixed time
             if self._elapsed(now) < float(cfg["gripper_close_time_s"]):
                 return {"gripper_open": float(cfg["gripper_close_speed"])}
-            # Closed. Did we actually grab something? An empty gripper closes all
-            # the way; a held object stops the fingers earlier (less negative).
-            state = self._safe_state()
-            grip = float(state.get("gripper_open", 0.0)) if state else 0.0
-            threshold = float(cfg.get("grasp_closed_threshold", -0.2))
-            if self.debug_perception:
-                print(f"[Stretch Assist] grasp check: gripper={grip:.3f} threshold={threshold:.3f}")
-            if grip <= threshold:  # closed on nothing -> retry the pick
-                self._grasp_attempts += 1
-                if self._grasp_attempts >= int(cfg.get("grasp_max_attempts", 3)):
-                    self.abort("could not grasp the object")
-                    return {}
-                self._manip_phase = 0
-                self._grasp_phase = 0
-                self._transition(AssistState.ALIGN, f"grasp missed, retry {self._grasp_attempts}")
-                return {"gripper_open": float(cfg["pregrasp"]["gripper_open"])}
             self._grasp_phase = 1
             self.state_entered_at = now
+            state = self._safe_state()
             current_lift = float(state.get("lift_up", 0.58)) if state else 0.58
             self._grasp_lift_target = current_lift + float(cfg["lift_clearance_m"])
             return {}
@@ -1018,45 +986,21 @@ def run_stretch_assist(
         vision=vision,
     )
 
-    # Boot the simulator (and its MuJoCo window) BEFORE showing the selector, so
-    # the menu appears over a running sim instead of before it. The controller is
-    # lazily created, so touching it here forces start-up now.
-    feedback.announce("Simulator", "starting up...")
-    machine._read_base_pose()
-
     interface = AccessibleCommandInterface(feedback=feedback)
 
-    try:
-        if interactive:
-            return _run_interactive(machine, interface, feedback, max_runtime_s=max_runtime_s)
+    if interactive:
+        return _run_interactive(machine, interface, feedback, max_runtime_s=max_runtime_s)
 
-        if target is None:
-            selection = interface.wait_for_target()
-            target = selection.aruco_id
-            # Only prompt for a destination when the object was chosen
-            # interactively and one was not already passed in.
-            if destination is None:
-                destination = interface.wait_for_destination()
+    if target is None:
+        selection = interface.wait_for_target()
+        target = selection.aruco_id
+        # Only prompt for a destination when the object was chosen interactively
+        # and one was not already passed in.
+        if destination is None:
+            destination = interface.wait_for_destination()
 
-        machine.request(target, destination=destination)
-        return machine.run(max_runtime_s=max_runtime_s)
-    finally:
-        # Stop the simulator process so the program exits cleanly instead of
-        # hanging on the sim's non-daemon threads (e.g. when the window closes).
-        _shutdown_sim(feedback)
-
-
-def _shutdown_sim(feedback=None) -> None:
-    try:
-        import stretch_toolkit
-
-        sim = getattr(stretch_toolkit, "_sim", None)
-        if sim is not None:
-            if feedback is not None:
-                feedback.announce("Simulator", "shutting down")
-            sim.stop()
-    except Exception:
-        pass
+    machine.request(target, destination=destination)
+    return machine.run(max_runtime_s=max_runtime_s)
 
 
 def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
@@ -1086,11 +1030,7 @@ def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
             machine.request(selection.aruco_id, destination=destination)
             machine.run(max_runtime_s=max_runtime_s, close_vision=False)
 
-            # Quit the session if the simulator was closed mid-mission, or the
-            # user closed the live window.
-            message = machine.last_message or ""
-            if machine.state == AssistState.ABORTED and "disconnect" in message:
-                break
+            # User closed the live window mid-mission -> quit the session.
             if machine.vision is not None and getattr(machine.vision, "_closed", False):
                 break
     finally:

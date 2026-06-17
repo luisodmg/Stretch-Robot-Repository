@@ -7,11 +7,10 @@
   "search": {
     "center_pan": -1.0,
     "center_tilt": -0.7,
-    "sweep_pan": 1.1,
-    "head_sweep_hz": 0.13,
+    "sweep_pan": 0.6,
+    "head_sweep_hz": 0.1,
     "head_gain": 2.0,
-    "timeout_s": 45.0,
-    "drive_while_searching": true
+    "timeout_s": 30.0
   },
   "approach": {
     "head_pan": -1.5,
@@ -47,14 +46,12 @@
     "grasp_lift_by_target": {
       "0": 0.45,
       "1": 0.45,
-      "2": 0.44
+      "2": 0.42
     },
     "gripper_close_speed": -1.0,
     "gripper_close_time_s": 1.6,
     "lift_clearance_m": 0.18,
-    "carry_arm_out": 0.0,
-    "grasp_closed_threshold": -0.2,
-    "grasp_max_attempts": 3
+    "carry_arm_out": 0.0
   },
   "return": {
     "distance_tolerance_m": 0.08,
