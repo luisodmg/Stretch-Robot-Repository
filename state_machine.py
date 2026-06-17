@@ -134,9 +134,9 @@ DEFAULT_CONFIG: dict = {
         # (facing +x) to each x and places the object on its -Y side, reusing the
         # pickup arm geometry. Offsets are [dx, dy, dtheta] from the start pose.
         "destinations": {
-            "table": [1.30, 0.0, 0.0],
-            "shelf": [1.90, 0.0, 0.0],
-            "person": [2.50, 0.0, 0.0],
+            "table": [1.30, -0.08, 0.0],
+            "shelf": [1.90, -0.11, 0.0],
+            "person": [2.50, -0.07, 0.0],
         },
     },
     "release": {
@@ -1052,6 +1052,14 @@ def run_stretch_assist(
     # lazily created, so touching it here forces start-up now.
     feedback.announce("Simulator", "starting up...")
     machine._read_base_pose()
+    # Anchor the delivery frame to the robot's boot pose (world origin), NOT to
+    # wherever it happens to be at the first request. request() only sets
+    # start_pose when it is still None, so capturing it here makes the
+    # destination offsets (return.destinations) line up with the furniture's
+    # absolute positions; otherwise the goal is short by the pickup approach
+    # distance and the object is set down at the front edge of the surface.
+    if machine.start_pose is None:
+        machine.start_pose = machine._read_base_pose()
 
     interface = AccessibleCommandInterface(feedback=feedback)
 
@@ -1198,8 +1206,9 @@ def main() -> None:
         const="__auto__",
         default=None,
         metavar="PATH",
-        help="Record the robot-vision window to an mp4 for demos. Pass a path, or "
-        "just --record to auto-name it under recordings/. Needs the vision window.",
+        help="Record the robot-vision window to video for demos. Pass a path "
+        "(.avi recommended on Linux; .mp4 also works) or just --record to "
+        "auto-name an .avi under recordings/. Needs the vision window.",
     )
     args = parser.parse_args()
 
@@ -1208,7 +1217,7 @@ def main() -> None:
         import datetime as _dt
 
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        record_path = str(Path(__file__).with_name("recordings") / f"stretch_assist_{stamp}.mp4")
+        record_path = str(Path(__file__).with_name("recordings") / f"stretch_assist_{stamp}.avi")
     run_stretch_assist(
         args.target,
         destination=args.destination,

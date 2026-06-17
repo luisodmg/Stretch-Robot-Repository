@@ -47,7 +47,7 @@
     </body>
     <body name="glass" pos="0.35 -0.70 0.646">
       <freejoint />
-      <geom type="cylinder" size=".015 .045" mass=".12" material="glass_body" condim="6" friction="1.5 0.1 0.01" />
+      <geom type="cylinder" size=".015 .045" mass=".12" material="glass_body" condim="6" friction="2.5 0.6 0.1" />
       <geom name="glass_aruco_1_marker" type="box" size="0.01500 0.01500 0.001" pos="0 0 0.04700" material="stretch_assist_aruco_1_mat" contype="0" conaffinity="0" />
     </body>
     <body name="tissue" pos="0.50 -0.70 0.64">

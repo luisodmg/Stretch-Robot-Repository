@@ -137,7 +137,12 @@ class VisionWindow:
                 if directory:
                     os.makedirs(directory, exist_ok=True)
                 h, w = canvas.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                # Pick a codec by extension. MJPG-in-AVI plays back reliably with
+                # the default codecs on Linux (mpeg4-in-mp4 often won't open in
+                # GNOME's video player), so .avi is the safe default.
+                ext = os.path.splitext(self.record_path)[1].lower()
+                codec = "mp4v" if ext == ".mp4" else "MJPG"
+                fourcc = cv2.VideoWriter_fourcc(*codec)
                 self._writer = cv2.VideoWriter(
                     self.record_path, fourcc, float(self.record_fps), (w, h)
                 )
