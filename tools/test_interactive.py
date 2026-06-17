@@ -15,9 +15,9 @@ from perception import target_id_for_name
 from state_machine import StretchAssistStateMachine
 
 
-# glass: pickup -> table, then table -> shelf (re-grab from the station),
-# then medicine_box: pickup -> person (coming from the shelf, no homing).
-MISSIONS = [("glass", "table"), ("glass", "shelf"), ("medicine_box", "person")]
+# One of each object to a different station; tests search, grasp detection,
+# and no-homing (each pickup starts from the previous station).
+MISSIONS = [("glass", "table"), ("medicine_box", "shelf"), ("tissue", "person")]
 
 
 def main() -> None:
