@@ -29,3 +29,6 @@ activities/solutions
 # Runtime control files
 joint_vels.json
 joint_pos.json
+
+# Local debugging telemetry sessions (frames + CSV)
+debug/sessions/
