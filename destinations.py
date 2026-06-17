@@ -12,9 +12,9 @@ from __future__ import annotations
 
 
 DESTINATION_LABELS: dict[str, str] = {
-    "table": "Mesa",
-    "shelf": "Repisa",
-    "person": "Persona",
+    "table": "Table",
+    "shelf": "Shelf",
+    "person": "Person",
 }
 
 # Order shown in the selector / CLI help.

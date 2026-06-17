@@ -56,6 +56,11 @@ DEFAULT_CONFIG: dict = {
         "stop_base_x_by_target": {"0": 0.23, "1": 0.38, "2": 0.53},
         "stop_base_x_default": 0.38,
         "base_x_tolerance_m": 0.01,
+        # How far before the object the interactive loop parks the base before
+        # the final forward APPROACH (so it can come from any direction). Kept
+        # generous so the upward-facing marker is not viewed edge-on from too
+        # close during SEARCH.
+        "preapproach_run_m": 0.4,
         "timeout_s": 40.0,
     },
     # Deterministic, camera-free manipulation. The robot has already centered
@@ -67,12 +72,14 @@ DEFAULT_CONFIG: dict = {
         "joint_tolerance_m": 0.02,
         "gripper_tolerance_m": 0.01,
         "phase_timeout_s": 8.0,
-        # Phase 1: lift high, arm retracted, gripper open.
+        # Phase 1: lift high, arm retracted, gripper open. The finger joint opens
+        # to ~0.6; open wide (0.4) so the gripper can surround a wide object like
+        # the medicine box, not just the thin glass.
         "pregrasp": {
             "lift_up": 0.66,
             "arm_out": 0.0,
             "wrist_yaw_counterclockwise": 0.0,
-            "gripper_open": 0.04,
+            "gripper_open": 0.4,
         },
         # Phase 2: still high, extend the arm so the open gripper is OVER the object.
         "over_pose": {
@@ -83,12 +90,13 @@ DEFAULT_CONFIG: dict = {
             "lift_up": 0.5,
             "arm_out": 0.34,
         },
-        # Per-object grasp height (ArUco id -> lift). Taller objects are gripped
-        # lower so the gripper closes around the body's middle, not the top.
+        # Per-object grasp height (ArUco id -> lift). Shorter objects need a
+        # LOWER grip so the fingers close around the body, not above it. Glass
+        # (tall) 0.45; medicine box (shorter) 0.43; tissue (flat) 0.41.
         "grasp_lift_by_target": {
-            "0": 0.47,
+            "0": 0.45,
             "1": 0.45,
-            "2": 0.50,
+            "2": 0.42,
         },
         "gripper_close_speed": -1.0,
         "gripper_close_time_s": 1.6,
@@ -237,6 +245,10 @@ class StretchAssistStateMachine:
         self.target_name: str | None = None
         self.destination_name: str = DEFAULT_DESTINATION
         self.start_pose: BasePose | None = None
+        # Last known base-x at which each object can be grasped (it sits on the
+        # -Y side there). Seeded from the pickup table, updated after each
+        # delivery so the robot remembers where it left things.
+        self.object_x: dict[int, float] = {}
         self.last_detection: DetectedObject | None = None
         self.last_message: str | None = None
         self.state_entered_at = time.monotonic()
@@ -255,7 +267,11 @@ class StretchAssistStateMachine:
         self.target_name = TARGET_OBJECTS[self.target_id]
         if destination is not None:
             self.set_destination(destination)
-        self.start_pose = self._read_base_pose()
+        # The home reference (for destination offsets) is captured once and kept
+        # across interactive missions, so the robot does not have to return to
+        # the very start between requests.
+        if self.start_pose is None:
+            self.start_pose = self._read_base_pose()
         self.last_detection = None
         self._manip_phase = 0
         self._grasp_phase = 0
@@ -441,10 +457,35 @@ class StretchAssistStateMachine:
         return command
 
     def _stop_base_x(self, cfg: Mapping) -> float:
-        by_target = cfg.get("stop_base_x_by_target", {})
-        if self.target_id is not None and str(self.target_id) in by_target:
-            return float(by_target[str(self.target_id)])
+        if self.target_id is not None:
+            return self._object_base_x(self.target_id)
         return float(cfg.get("stop_base_x_default", 0.47))
+
+    def _object_base_x(self, target_id: int) -> float:
+        """Base-x where ``target_id`` is currently grasped.
+
+        Uses the remembered location if we have one (e.g. after delivering it to
+        a station), otherwise the object's pickup-table position from config.
+        """
+
+        if target_id in self.object_x:
+            return self.object_x[target_id]
+        cfg = self.config.section("approach")
+        by_target = cfg.get("stop_base_x_by_target", {})
+        if str(target_id) in by_target:
+            return float(by_target[str(target_id)])
+        return float(cfg.get("stop_base_x_default", 0.47))
+
+    def preapproach_pose(self, target_id: int) -> BasePose:
+        """Base pose just before ``target_id`` so APPROACH can drive the last bit.
+
+        Lets the interactive loop send the robot straight to where the object is
+        (remembered location) from wherever it currently is, instead of going
+        back to the start.
+        """
+
+        run = float(self.config.section("approach").get("preapproach_run_m", 0.25))
+        return BasePose(self._object_base_x(target_id) - run, 0.0, 0.0)
 
     def _grasp_pose(self, cfg: Mapping) -> dict[str, float]:
         """Grasp pose with a per-object lift height.
@@ -641,6 +682,11 @@ class StretchAssistStateMachine:
         # phase 3: retract and raise, leaving the object resting on the surface.
         command, reached = self._drive_joints_to({"lift_up": high, "arm_out": retracted}, cfg)
         if reached or self._elapsed(now) > float(cfg["phase_timeout_s"]):
+            # Remember where we left it: the object now sits at this station, so
+            # a later request to grab it again goes straight here.
+            target_pose = self._destination_pose()
+            if target_pose is not None and self.target_id is not None:
+                self.object_x[self.target_id] = target_pose.x
             self._transition(AssistState.COMPLETE, "object delivered")
             return {}
         return command
@@ -968,7 +1014,6 @@ def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
     feedback.announce(
         "Interactive", "pick an object, then a destination; close the selector or press Ctrl-C to quit"
     )
-    home = machine._read_base_pose()
 
     try:
         while True:
@@ -978,10 +1023,10 @@ def _run_interactive(machine, interface, feedback, *, max_runtime_s=None):
             except (RuntimeError, EOFError, KeyboardInterrupt):
                 break
 
-            if home is not None:
-                feedback.announce("Homing", "returning to the pickup area")
-                machine.drive_base_to(home)
-
+            # Go straight to where the object was last seen (no trip back to the
+            # start), then run the pickup + delivery.
+            feedback.announce("Heading out", f"going to fetch {selection.label}")
+            machine.drive_base_to(machine.preapproach_pose(selection.aruco_id))
             machine.request(selection.aruco_id, destination=destination)
             machine.run(max_runtime_s=max_runtime_s, close_vision=False)
 

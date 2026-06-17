@@ -43,22 +43,22 @@ def main() -> None:
     n = 0
     t0 = time.monotonic()
     grabbed_at = None
-    while time.monotonic() - t0 < 120.0:
+    while time.monotonic() - t0 < 150.0:
         state = machine.step()
-        # Capture through GRASP and for ~2s into RETURN (object lifted).
-        if state == AssistState.GRASP or (
+        # Capture the descent (ALIGN), the close (GRASP), and ~2s into RETURN.
+        if state in (AssistState.ALIGN, AssistState.GRASP) or (
             state == AssistState.RETURN and (grabbed_at is None or time.monotonic() - grabbed_at < 2.0)
         ):
             if state == AssistState.RETURN and grabbed_at is None:
                 grabbed_at = time.monotonic()
-            if n % 8 == 0:  # ~ every 8 steps
+            if n % 4 == 0:
                 try:
                     _save(f"head_{n:03d}", HEAD_CAMERA.rgb_cam.get_frame())
                     _save(f"wrist_{n:03d}", WRIST_CAMERA.rgb_cam.get_frame())
                 except Exception as exc:
                     print(f"[grasp] capture error: {exc}")
             n += 1
-        if state in (AssistState.RETURN,) and grabbed_at is not None and time.monotonic() - grabbed_at >= 2.0:
+        if state == AssistState.RETURN and grabbed_at is not None and time.monotonic() - grabbed_at >= 2.0:
             print("[grasp] captured grasp window, stopping")
             break
         if state in (AssistState.COMPLETE, AssistState.ABORTED):

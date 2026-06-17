@@ -22,6 +22,7 @@
     "stop_base_x_by_target": {"0": 0.23, "1": 0.38, "2": 0.53},
     "stop_base_x_default": 0.38,
     "base_x_tolerance_m": 0.01,
+    "preapproach_run_m": 0.4,
     "timeout_s": 40.0
   },
   "manipulation": {
@@ -33,7 +34,7 @@
       "lift_up": 0.66,
       "arm_out": 0.0,
       "wrist_yaw_counterclockwise": 0.0,
-      "gripper_open": 0.04
+      "gripper_open": 0.4
     },
     "over_pose": {
       "arm_out": 0.34
@@ -43,9 +44,9 @@
       "arm_out": 0.34
     },
     "grasp_lift_by_target": {
-      "0": 0.47,
+      "0": 0.45,
       "1": 0.45,
-      "2": 0.50
+      "2": 0.42
     },
     "gripper_close_speed": -1.0,
     "gripper_close_time_s": 1.6,

@@ -137,16 +137,36 @@ The current system depends on visible ArUco markers, the grasp is still being tu
 
 ## How To Run The Demo
 
-```bash
-uv run python state_machine.py --target glass --no-teleop
-```
-
-The target can be changed:
+Render on the NVIDIA GPU with the launcher (recommended on this laptop):
 
 ```bash
-uv run python state_machine.py --target medicine_box --no-teleop
-uv run python state_machine.py --target tissue --no-teleop
+./run_stretch_assist.sh --target glass --destination table --no-teleop
 ```
+
+The robot searches for the object, approaches, grasps it, carries it to the
+chosen destination, and places it on top. The target and destination can be
+changed:
+
+```bash
+./run_stretch_assist.sh --target medicine_box --destination shelf --no-teleop
+./run_stretch_assist.sh --target tissue --destination person --no-teleop
+```
+
+Targets: `medicine_box`, `glass`, `tissue`. Destinations: `table`, `shelf`,
+`person`.
+
+### Interactive Mode
+
+Give repeated "grab X, drop at Y" commands without restarting. The robot
+remembers where it left each object and goes straight there next time, instead
+of returning to the start:
+
+```bash
+./run_stretch_assist.sh --interactive --no-teleop
+```
+
+A large-button selector asks for the object, then the destination, after each
+delivery. Close the selector or press Ctrl-C to quit.
 
 With the vision window enabled, the demo can visually show what the robot detects and how the state machine progresses.
 

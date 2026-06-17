@@ -1,7 +1,7 @@
-"""Run several deliveries back-to-back with homing between them.
+"""Run several deliveries back-to-back the way the interactive loop does.
 
-Exercises the interactive core (drive_base_to home + repeated request/run) and
-all three objects in one session, without needing the GUI selector.
+Goes straight to each object's remembered location (no trip back to start) and
+exercises re-grabbing an object from the station it was left at.
 """
 
 import os
@@ -11,10 +11,13 @@ os.environ.setdefault("STRETCH_SIM_CAMERA_HZ", "12")
 
 import time
 
+from perception import target_id_for_name
 from state_machine import StretchAssistStateMachine
 
 
-MISSIONS = [("glass", "table"), ("medicine_box", "shelf"), ("tissue", "person")]
+# glass: pickup -> table, then table -> shelf (re-grab from the station),
+# then medicine_box: pickup -> person (coming from the shelf, no homing).
+MISSIONS = [("glass", "table"), ("glass", "shelf"), ("medicine_box", "person")]
 
 
 def main() -> None:
@@ -28,15 +31,15 @@ def main() -> None:
         debug_perception=True,
     )
     time.sleep(2.0)
-    home = machine._read_base_pose()
-    print(f"[itest] home={home}")
 
     for obj, dest in MISSIONS:
-        if home is not None:
-            machine.drive_base_to(home, timeout_s=40.0)
-            print(f"[itest] homed to {machine._read_base_pose()}")
+        tid = target_id_for_name(obj)
+        pre = machine.preapproach_pose(tid)
+        print(f"[itest] fetching {obj} (id {tid}) from remembered x={machine._object_base_x(tid):.2f}")
+        machine.drive_base_to(pre, timeout_s=45.0)
+        print(f"[itest] at preapproach {machine._read_base_pose()}")
         machine.request(obj, destination=dest)
-        state = machine.run(max_runtime_s=150.0, close_vision=False)
+        state = machine.run(max_runtime_s=160.0, close_vision=False)
         print(f"[itest] MISSION {obj} -> {dest}: {state.value}")
 
     print("[itest] all missions done")
