@@ -986,6 +986,12 @@ def run_stretch_assist(
         vision=vision,
     )
 
+    # Boot the simulator (and its MuJoCo window) BEFORE showing the selector, so
+    # the menu appears over a running sim instead of before it. The controller is
+    # lazily created, so touching it here forces start-up now.
+    feedback.announce("Simulator", "starting up...")
+    machine._read_base_pose()
+
     interface = AccessibleCommandInterface(feedback=feedback)
 
     if interactive:
