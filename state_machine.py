@@ -96,7 +96,7 @@ DEFAULT_CONFIG: dict = {
         "grasp_lift_by_target": {
             "0": 0.45,
             "1": 0.45,
-            "2": 0.42,
+            "2": 0.44,
         },
         "gripper_close_speed": -1.0,
         "gripper_close_time_s": 1.6,

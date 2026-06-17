@@ -206,6 +206,46 @@ def run_missions(machine, sim, head_cam, session: Path, missions) -> None:
     print(f"\n[run] wrote {session/'telemetry.csv'}")
 
 
+def film(machine, sim, head_cam, wrist_cam, session: Path, obj: str) -> None:
+    """Run one pick and save a dense head+wrist filmstrip of the whole grasp."""
+    tid = target_id_for_name(obj)
+    ox, oy = OBJECTS[tid][1], OBJECTS[tid][2]
+    machine.drive_base_to(machine.preapproach_pose(tid), timeout_s=45.0)
+    machine.request(obj, destination="table")
+
+    frames_dir = session / "frames"
+    n = 0
+    saved = 0
+    return_started = None
+    t0 = time.time()
+    state = AssistState.SEARCH
+    while time.time() - t0 < 180.0:
+        state = machine.step()
+        record = state in (AssistState.ALIGN, AssistState.GRASP)
+        if state == AssistState.RETURN:
+            return_started = return_started or time.time()
+            record = time.time() - return_started < 3.0  # a few seconds after lift
+        if record and n % 2 == 0:  # dense: every 2 control steps
+            tag = f"{obj}_{saved:03d}_{state.value}"
+            _save_frame(frames_dir, f"{tag}_head", head_cam.rgb_cam.get_frame())
+            _save_frame(frames_dir, f"{tag}_wrist", wrist_cam.rgb_cam.get_frame())
+            if state in (AssistState.GRASP, AssistState.RETURN):
+                ee = sim.get_ee_pose()
+                print(
+                    f"[film] {tag} ee=({ee[0,3]:.3f},{ee[1,3]:.3f},{ee[2,3]:.3f}) "
+                    f"err_y={oy - float(ee[1,3]):+.3f} grip={machine.controller.get_state().get('gripper_open'):.3f}"
+                )
+            saved += 1
+        n += 1
+        if return_started is not None and time.time() - return_started >= 3.0:
+            print(f"[film] done; saved {saved} frame pairs to {frames_dir}")
+            break
+        if state in (AssistState.COMPLETE, AssistState.ABORTED):
+            print(f"[film] ended in {state.value}; saved {saved} frame pairs")
+            break
+        time.sleep(1.0 / 30.0)
+
+
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else "calibrate"
     from stretch_toolkit import HEAD_CAMERA, controller
@@ -227,8 +267,12 @@ def main() -> None:
     elif mode == "run":
         missions = [tuple(a.split(":")) for a in sys.argv[2:]] or [("glass", "table")]
         run_missions(machine, sim, HEAD_CAMERA, session, missions)
+    elif mode == "film":
+        obj = sys.argv[2] if len(sys.argv) > 2 else "medicine_box"
+        from stretch_toolkit import WRIST_CAMERA
+        film(machine, sim, HEAD_CAMERA, WRIST_CAMERA, session, obj)
     else:
-        print(f"unknown mode {mode!r}; use 'calibrate' or 'run'")
+        print(f"unknown mode {mode!r}; use 'calibrate', 'run', or 'film'")
 
 
 if __name__ == "__main__":
